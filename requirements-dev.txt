@@ -1,0 +1,7 @@
+pytest==6.2.5
+semgrep
+bandit
+pipreqs 
+pip-licenses
+boto3
+jwt
