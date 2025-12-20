@@ -1,0 +1,38 @@
+# Python
+*.swp
+__pycache__
+.pytest_cache
+.venv
+*.egg-info
+.venv
+requirements-license.txt
+
+# PHP
+moodle/plugin/local/local_awsevents/vendor
+moodle/plugin/local/local_awsevents/composer.lock
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+
+# Local config file
+cdk.local.json
+cdk.context.json
+
+# Local binaries
+bin/
+
+# Mac
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Project specific
+moodle/plugin/local/awsevents.zip
+moodle/plugin/blocks/aitranslator.zip
+layers/*/python
+licenses-python.txt
+licenses-ts.csv
+synth_output.txt
+log_check.txt

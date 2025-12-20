@@ -1,0 +1,142 @@
+[env]
+_.python.venv = { path = ".venv", create = true }
+CDK_DOCKER = "finch"
+AWS_REGION = "us-west-2"
+CDK_DEFAULT_REGION = "{{env.AWS_REGION}}"
+STACK_NAME = "moodle-plugins"
+EVENT_BUS_NAME = "moodle-events"
+POLICY_ARN = "arn:aws:iam::829703038625:policy/MoodleCDKTestRolePolicy"
+
+[tools]
+node = "22"
+python = "3.13"
+aws-cli = "latest"
+
+[tasks.clean]
+description = "Remove build artifacts and dependencies"
+run = [
+  "rm -rf .venv bin cdk.out",
+  "rm -f licenses-ts.csv licenses-python.txt",
+  "rm -f moodle/plugin/blocks/aitranslator.zip moodle/plugin/local/awsevents.zip",
+  "rm -rf lti_frontend/node_modules lti_frontend/dist",
+  "find . -type d -name '__pycache__' -exec rm -rf {} +"
+]
+run_windows = [
+  "if exist .venv rmdir /s /q .venv",
+  "if exist bin rmdir /s /q bin", 
+  "if exist cdk.out rmdir /s /q cdk.out",
+  "if exist licenses-ts.csv del /q licenses-ts.csv",
+  "if exist licenses-python.txt del /q licenses-python.txt",
+  "if exist moodle\\plugin\\blocks\\aitranslator.zip del /q moodle\\plugin\\blocks\\aitranslator.zip",
+  "if exist moodle\\plugin\\local\\awsevents.zip del /q moodle\\plugin\\local\\awsevents.zip",
+  "if exist lti_frontend\\node_modules rmdir /s /q lti_frontend\\node_modules",
+  "if exist lti_frontend\\dist rmdir /s /q lti_frontend\\dist",
+  "for /d /r . %d in (__pycache__) do @if exist \"%d\" rmdir /s /q \"%d\""
+]
+
+[tasks.init] 
+description = "Install project dependencies"
+depends_post = ["init:frontend"]
+run = [
+  "python -m ensurepip --upgrade",
+  "python -m pip install --upgrade -r requirements.txt",
+  "python -m pip install --upgrade -r requirements-dev.txt",
+]
+
+[tasks."init:frontend"]
+description = "Install frontend dependencies"
+dir = "lti_frontend"
+run = "npm install"
+
+[tasks."cdk:bootstrap"]
+depends = "site:build"
+description = "Bootstrap CDK toolkit stack"
+run = """
+if [ -n "$POLICY_ARN" ]; then
+  echo "Using least privilege policy: $POLICY_ARN"
+  cdk bootstrap --cloudformation-execution-policies "$POLICY_ARN" --toolkit-stack-name CDKToolkit-${STACK_NAME}
+else
+  echo "Using default AdministratorAccess policy (set POLICY_ARN for least privilege)"
+  cdk bootstrap --toolkit-stack-name CDKToolkit-${STACK_NAME}
+fi
+"""
+run_windows = [
+  "if defined POLICY_ARN (echo Using least privilege policy: %POLICY_ARN%) else (echo Using default AdministratorAccess policy - set POLICY_ARN for least privilege)",
+  "if defined POLICY_ARN (cdk bootstrap --cloudformation-execution-policies \"%POLICY_ARN%\" --toolkit-stack-name \"CDKToolkit-%STACK_NAME%\") else (cdk bootstrap --toolkit-stack-name \"CDKToolkit-%STACK_NAME%\")"
+]
+
+[tasks."cdk:synth"]
+description = "Synthesize CDK stack and check for security issues"
+run = "cdk synth 2>&1 | tee /dev/tty | grep -E \"(Error|Warning).*AwsSolutions\" | wc -l"
+run_windows = [
+  "cdk synth > synth_output.txt 2>&1",
+  "findstr \"Error.*AwsSolutions\" synth_output.txt > nul && echo Found Error AwsSolutions issues || echo No Error AwsSolutions issues",
+  "findstr \"Warning.*AwsSolutions\" synth_output.txt > nul && echo Found Warning AwsSolutions issues || echo No Warning AwsSolutions issues",
+  "del synth_output.txt"
+]
+
+[tasks."cdk:deploy"]
+description = "Deploy CDK stack to AWS"
+depends = "site:build"
+run = "cdk deploy --require-approval never"
+
+[tasks."cdk:sync"]
+description = "Watch and deploy CDK changes with hotswap"
+run = "cdk deploy --hotswap-fallback --watch"
+
+[tasks."cdk:destroy"]
+description = "Destroy CDK stack and cleanup resources"
+depends_post = "logs:delete"
+run = "cdk destroy --force"
+
+[tasks."site:build"]
+description = "Build LTI frontend site"
+dir = "{{ config_root }}/lti_frontend"
+run = ["npm run build"]
+
+[tasks."aitranslator:package"]
+description = "Package AI Translator Moodle plugin"
+dir = "{{cwd}}/moodle/plugin/blocks"
+run = [
+  "rm -f aitranslator.zip",
+  "zip -r aitranslator.zip block_aitranslator",
+]
+run_windows = [
+  "if exist aitranslator.zip del /q aitranslator.zip",
+  "powershell -Command \"Compress-Archive -Path block_aitranslator -DestinationPath aitranslator.zip -Force\"",
+]
+
+[tasks."events:package"]
+description = "Package AWS Events Moodle plugin"
+dir = "{{cwd}}/moodle/plugin/local"
+run = [
+  "rm -f awsevents.zip",
+  "zip -r awsevents.zip local_awsevents",
+]
+run_windows = [
+  "if exist awsevents.zip del /q awsevents.zip",
+  "powershell -Command \"Compress-Archive -Path local_awsevents -DestinationPath awsevents.zip -Force\"",
+]
+
+[tasks.package]
+description = "Package all Moodle plugins"
+depends = ["events:package", "aitranslator:package"]
+
+[tasks.lint]
+description = "Run all linting tools"
+run = [
+    "bandit -c bandit.yaml -r .",
+    "semgrep ci"
+]
+
+[tasks."logs:delete"]
+description = "Delete CloudWatch log groups"
+run = """
+LOG_GROUP_NAME="/aws/lambda/${STACK_NAME}-DelayFunction"
+
+if aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --query "logGroups[?logGroupName=='$LOG_GROUP_NAME']" --output text | grep -q "$LOG_GROUP_NAME"; then
+    echo "Deleting log group: $LOG_GROUP_NAME"
+    aws logs delete-log-group --log-group-name "$LOG_GROUP_NAME"
+fi
+"""
+run_windows = "aws logs describe-log-groups --log-group-name-prefix /aws/lambda/%STACK_NAME%-DelayFunction --query \"logGroups[?logGroupName=='/aws/lambda/%STACK_NAME%-DelayFunction']\" --output text | findstr \"/aws/lambda/%STACK_NAME%-DelayFunction\" >nul && (echo Deleting log group: /aws/lambda/%STACK_NAME%-DelayFunction && aws logs delete-log-group --log-group-name /aws/lambda/%STACK_NAME%-DelayFunction) || echo Log group not found"
