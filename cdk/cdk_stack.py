@@ -35,20 +35,6 @@ class CdkStack(Stack):
         layers = LayersConstruct(self, "Layers")
         logging = LoggingConstruct(self, "Logging")
 
-        moodle_events = MoodleEventsConstruct(
-            self, "MoodleEvents", moodle_role_name=moodle_role_name or ""
-        )
-
-        MoodleEventHandlersConstruct(
-            self,
-            "MoodleEventHandlers",
-            qualifier=qualifier,
-            moodle_event_bus=moodle_events.moodle_event_bus,
-            moodle_domain=moodle_domain,
-            powertools_layer=layers.powertools_layer,
-            requests_layer=layers.requests_layer,
-        )
-
         lti = LtiConstruct(
             self,
             "LTI",
@@ -66,6 +52,12 @@ class CdkStack(Stack):
             requests_layer=layers.requests_layer,
         )
 
+        # Add LTI endpoints to the API Gateway after both constructs are created
+        # This is done separately because the LTI construct needs a reference to the API
+        # that is created in the APIGatewayConstruct, creating a circular dependency
+        # if done in the constructor
+        lti.add_api_endpoints(api.api)
+        
         MoodleAiTranslatorConstruct(
             self,
             "MoodleAiTranslator",
@@ -74,7 +66,19 @@ class CdkStack(Stack):
             powertools_layer=layers.powertools_layer,
         )
 
-        lti.add_api_endpoints(api.api)
+        moodle_events = MoodleEventsConstruct(
+            self, "MoodleEvents", moodle_role_name=moodle_role_name or ""
+        )
+
+        MoodleEventHandlersConstruct(
+            self,
+            "MoodleEventHandlers",
+            qualifier=qualifier,
+            moodle_event_bus=moodle_events.moodle_event_bus,
+            moodle_domain=moodle_domain,
+            powertools_layer=layers.powertools_layer,
+            requests_layer=layers.requests_layer,
+        )
 
         # CloudFormation outputs
         CfnOutput(
