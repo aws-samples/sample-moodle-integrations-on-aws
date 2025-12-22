@@ -2,7 +2,7 @@
 
 > **⚠️ DISCLAIMER**: This is sample code intended for demonstration and non-production use only. Review and adapt security configurations before deploying to production environments.
 
-This repository provides sample implementations for the patterns described in the [AWS Guidance: Integrating Learning Management Systems (LMS) with AWS](<PLACEHOLDER_URL TODO:>). It demonstrates recommended practices for connecting Moodle with AWS services for a range of use cases.
+<!-- This repository provides sample implementations for the patterns described in the [AWS Guidance: Integrating Learning Management Systems (LMS) with AWS](<PLACEHOLDER_URL TODO:>). It demonstrates recommended practices for connecting Moodle with AWS services for a range of use cases. -->
 
 ## Overview
 
@@ -89,8 +89,8 @@ The solution includes:
 ### 1. Clone and Configure
 
 ```bash
-git clone <repository-url> # TODO update
-cd sample-aws-lms-integration
+git clone https://github.com/aws-samples/sample-moodle-integrations-on-aws.git 
+cd sample-moodle-integrations-on-aws
 mise trust
 ```
 
