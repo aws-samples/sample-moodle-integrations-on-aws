@@ -8,14 +8,6 @@
  * the License.
  */
 
-/**
- * AWS EventBridge integration class
- *
- * @package    local_awsevents
- * @copyright  2024 Your Name <your@email.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace local_awsevents;
 
 use Aws\EventBridge\EventBridgeClient;

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, ColumnLayout, Header, PromptInput, SpaceBetween, TextContent } from '@cloudscape-design/components';
+import { Button, ColumnLayout, Header, PromptInput, SpaceBetween, TextContent, Spinner, Alert, Container } from '@cloudscape-design/components';
 
 interface UserInfo {
   user_id: string;
   username?: string;
   context_title?: string;
+  context?: any;
 }
 
 const LtiHandler = () => {
@@ -42,8 +43,6 @@ const LtiHandler = () => {
         return response.json();
       })
       .then(data => {
-        // Store token in sessionStorage for subsequent requests
-        sessionStorage.setItem('lti_token', data.token);
         setUserInfo(data);
         setLoading(false);
       })
@@ -54,40 +53,45 @@ const LtiHandler = () => {
   }, []);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return <Spinner size="large" />;
   }
 
   if (error) {
-    return <div className="error">{error}</div>;
+    return <Alert type="error" header="Authentication Error">{error}</Alert>;
   }
 
   return (
-    <div>
-      {userInfo && (
+    <Container>
+      <SpaceBetween size="l">
+        {userInfo && (
+          <div>
+            <Header variant="h2">User Information</Header>
+            <ColumnLayout columns={2} variant="text-grid">
+              <div><strong>User ID:</strong> {userInfo.user_id}</div>
+              <div><strong>Course:</strong> {userInfo.context_title || 'N/A'}</div>
+              {userInfo.context?.id && (
+                <div><strong>Context ID:</strong> {userInfo.context.id}</div>
+              )}
+            </ColumnLayout>
+          </div>
+        )}
+        
         <div>
-          <h2>User Information</h2>
-          <ColumnLayout  columns={2} variant="text-grid">
-            <p><strong>User ID:</strong> {userInfo.user_id}</p>
-            <p><strong>Course:</strong> {userInfo.context_title}</p>
-          </ColumnLayout>
+          <SpaceBetween size="s">
+            <Header variant="h2">Translation tool</Header>
+            <PromptInput
+              onChange={({ detail }) => setValue(detail.value)}
+              value={value}
+              ariaLabel="Default prompt input"
+              placeholder="Enter a text to translate to French"
+            />
+            <Header actions={<Button variant='primary' onClick={() => console.log("Translate!")}>Translate</Button>} />
+          </SpaceBetween>
+          <Header variant="h3">Result:</Header> 
+          <TextContent>Ce texte contient des informations à traduire</TextContent>
         </div>
-      )}
-      <br />
-      <div>
-        <SpaceBetween size="s">
-          <h2>Translation tool</h2>
-          <PromptInput
-            onChange={({ detail }) => setValue(detail.value)}
-            value={value}
-            ariaLabel="Default prompt input"
-            placeholder="Enter a text to translate to French"
-          />
-          <Header actions={<Button variant='primary' onClick={() => console.log("Translate!")}>Translate</Button>} />
-        </SpaceBetween>
-        <Header variant="h3">Result:</Header> 
-        <TextContent>Ce texte contient des informations à traduire</TextContent>
-      </div>
-    </div>
+      </SpaceBetween>
+    </Container>
   );
 };
 
