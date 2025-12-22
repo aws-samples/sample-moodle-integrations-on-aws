@@ -8,14 +8,6 @@
  * the License.
  */
 
-/**
- * Version details for AWS Events plugin
- *
- * @package    local_awsevents
- * @copyright  2024 Your Name <your@email.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->version   = 2025102100;        

@@ -8,14 +8,6 @@
  * the License.
  */
 
-/**
- * Event observer for AWS Events plugin
- *
- * @package    local_awsevents
- * @copyright  2024 Your Name <your@email.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace local_awsevents;
 
 defined('MOODLE_INTERNAL') || die();

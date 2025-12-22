@@ -121,17 +121,7 @@ class APIGatewayConstruct(Construct):
             runtime=_lambda.Runtime.PYTHON_3_14,
             architecture=_lambda.Architecture.ARM_64,
             handler="app.lambda_handler",
-            code=_lambda.Code.from_asset(
-                "lambda/moodle_authorizer",
-                bundling={
-                    "image": _lambda.Runtime.PYTHON_3_14.bundling_image,
-                    "command": [
-                        "bash",
-                        "-c",
-                        "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output",
-                    ],
-                },
-            ),
+            code=_lambda.Code.from_asset("lambda/moodle_authorizer"),
             role=authorizer_role,
             timeout=Duration.seconds(30),
             layers=[powertools_layer, requests_layer],

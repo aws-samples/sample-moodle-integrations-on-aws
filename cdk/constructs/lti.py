@@ -23,14 +23,14 @@ from aws_cdk import (
 class LtiConstruct(Construct):
     def __init__(
         self,
-        scope: Construct,
-        id: str,
+        scope,
+        construct_id,
         moodle_url: str,
         powertools_layer=None,
         log_bucket=None,
         **kwargs,
     ):
-        super().__init__(scope, id)
+        super().__init__(scope, construct_id)
 
         stack = Stack.of(self)
 
@@ -415,7 +415,6 @@ class LtiConstruct(Construct):
 
         # Update SSM parameter with API Gateway URL using Custom Resource
         # Use API Gateway directly for launch to allow Set-Cookie header
-        cloudfront_url = f"https://{self.distribution.distribution_domain_name}"
         cr.AwsCustomResource(
             self,
             "UpdateRedirectUri",
