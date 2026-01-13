@@ -293,6 +293,24 @@ Before configuring plugins, enable Moodle's web services. This creates REST API 
 
 ### AI Translator Block
 
+#### Architecture
+
+The block plugin follows the following architecture to integerate with the Moodle LMS.
+
+![Block plugin pattern](./images/PluginPattern.png)
+
+The Moodle plugin calls an API Gateway endpoint backed by a Lambda function. It makes a POST request to interact with the Bedrock service. 
+
+1. Custom LMS Plugin Component: Native extension to the LMS that provides the UI and handles user interaction.
+
+2. API Gateway: Secure endpoint that receives requests from the plugin.
+
+3. AWS Lambda: Processes requests, formats prompts for the model, and handles responses.
+
+4. Amazon Bedrock: Provides access to foundation models like Claude or Amazon Nova.
+
+#### Installation
+
 Install the AI Translator block by navigating to Site Administration > Plugins > Install plugins and uploading the zip file.
 
 #### Configure API Gateway
@@ -356,6 +374,30 @@ The block uses the user's Moodle web service token to authenticate with API Gate
 > **Note**: Unlike the AWS Events plugin (below) which uses service credentials, the AI Translator block operates in the user's context. Each translation request is authenticated using a Moodle web service token generated for the logged-in user, ensuring user-level access control.
 
 ### AWS Events Plugin
+
+#### Architecture
+
+The events plugin follows the following architecture to integrate with the Moodle LMS.
+
+![events plugin pattern](./images/EventsPlugin.png)
+
+When an event occurs in the LMS, the following process takes place:
+
+1. LMS captures the event in its Events subsystem
+
+2. Custom LMS Plugin observes each created event
+
+3. The plugin sends an authenticated request to EventBridge or streaming service with the event payload
+
+3. AWS API validates the request using IAM
+
+3. Upon successful authentication, the request is added to an EventBridge event bus or stream
+
+3. A rule receives incoming events and routes them to appropriate AWS Services based on matching event patterns or records are processed off the stream and processed by the consumer.
+
+This architecture ensures secure communication between the LMS and AWS Services allowing LMS platform capabilities to be extended with AWS Services.
+
+#### Installation
 
 Install the AWS Events plugin by navigating to Site Administration > Plugins > Install plugins and uploading the zip file.
 
@@ -432,6 +474,24 @@ Required for file indexing:
 After configuration, uploading a file to a Moodle course triggers a Lambda function that indexes it in the Bedrock Knowledge Base. Verify by checking the `moodle-plugins-MoodleDataSource` data source under the `moodle-plugins-MoodleFiles` Knowledge Base in the AWS Console.
 
 ## Sample LTI Tool
+
+### Architecture
+
+The LTI tool follows the following architecture and flow to integrate with Moodle.
+
+![LTI Pattern](./images/LTIPattern.png)
+
+When a user interacts with the LTI plugin in the LMS:
+
+1. The LMS and the LTI tool perform a handshake process that enables the exchange of information.
+
+1. Upon success, the LTI tool is displayed inside an iFrame on the LMS.
+
+1. The tool makes authenticated calls to an AWS backend.
+
+1. The tool returns the requested information.
+
+1. Alternatively, the tool can also pass information back to the LMS.
 
 ### Configure the Learning tools interoperability (LTI) tool
 
