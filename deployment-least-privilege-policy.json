@@ -47,10 +47,10 @@
       "Resource": "*"
     },
     {
-      "Sid": "OpenSearchServerlessPermissions",
+      "Sid": "S3VectorsPermissions",
       "Effect": "Allow",
       "Action": [
-        "aoss:*"
+        "s3vectors:*"
       ],
       "Resource": "*"
     },

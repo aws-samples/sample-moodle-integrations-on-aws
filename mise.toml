@@ -86,7 +86,6 @@ run = "cdk deploy --hotswap-fallback --watch"
 
 [tasks."cdk:destroy"]
 description = "Destroy CDK stack and cleanup resources"
-depends_post = "logs:delete"
 run = "cdk destroy --force"
 
 [tasks."site:build"]
@@ -129,14 +128,3 @@ run = [
     "semgrep ci"
 ]
 
-[tasks."logs:delete"]
-description = "Delete CloudWatch log groups"
-run = """
-LOG_GROUP_NAME="/aws/lambda/${STACK_NAME}-DelayFunction"
-
-if aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --query "logGroups[?logGroupName=='$LOG_GROUP_NAME']" --output text | grep -q "$LOG_GROUP_NAME"; then
-    echo "Deleting log group: $LOG_GROUP_NAME"
-    aws logs delete-log-group --log-group-name "$LOG_GROUP_NAME"
-fi
-"""
-run_windows = "aws logs describe-log-groups --log-group-name-prefix /aws/lambda/%STACK_NAME%-DelayFunction --query \"logGroups[?logGroupName=='/aws/lambda/%STACK_NAME%-DelayFunction']\" --output text | findstr \"/aws/lambda/%STACK_NAME%-DelayFunction\" >nul && (echo Deleting log group: /aws/lambda/%STACK_NAME%-DelayFunction && aws logs delete-log-group --log-group-name /aws/lambda/%STACK_NAME%-DelayFunction) || echo Log group not found"
