@@ -30,6 +30,26 @@ class observer {
                 debugging('Processing event: ' . $event->eventname . ' (' . $event->component . '/' . $event->action . ')', DEBUG_DEVELOPER);
             }
 
+            // Filter: Only process file-related modules for course_module events
+            if ($event->eventname === '\core\event\course_module_created' || 
+                $event->eventname === '\core\event\course_module_deleted') {
+                
+                $other = $event->other;
+                $modulename = isset($other['modulename']) ? $other['modulename'] : null;
+                
+                // Only process resource and folder modules (file-related activities)
+                if (!in_array($modulename, ['resource', 'folder'])) {
+                    if ($debug) {
+                        debugging('Skipping non-file module: ' . $modulename, DEBUG_DEVELOPER);
+                    }
+                    return;
+                }
+                
+                if ($debug) {
+                    debugging('Processing file module: ' . $modulename, DEBUG_DEVELOPER);
+                }
+            }
+
             // Initialize AWS EventBridge handler
             $handler = new aws_eventbridge();
             

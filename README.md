@@ -524,7 +524,6 @@ When a user interacts with the LTI plugin in the LMS:
 │   ├── constructs/         # Reusable CDK constructs
 │   └── cdk_stack.py        # Main stack definition
 ├── lambda/                 # Lambda function code
-│   ├── delay/              # Event delay handler
 │   ├── index_moodle_file/  # File indexing
 │   ├── lti/                # LTI integration
 │   ├── moodle_authorizer/  # API Gateway authorizer
@@ -549,7 +548,7 @@ mise run cdk:destroy
 
 This command will:
 - Delete the CloudFormation stack and all associated resources
-- Remove Lambda functions, API Gateway, EventBridge bus and OpenSearch domain
+- Remove Lambda functions, API Gateway, EventBridge bus and S3 Vectors bucket
 - Clean up CloudWatch log groups
 
 > **Note**: Some resources may incur costs until fully deleted. Verify deletion in the AWS Console.

@@ -1,7 +1,6 @@
-pytest==6.2.5
-semgrep
-bandit
-pipreqs 
-pip-licenses
-boto3
-jwt
+pytest~=6.2
+semgrep~=1.113
+bandit~=1.8
+pip-licenses~=5.0
+boto3~=1.38
+jwt~=1.3

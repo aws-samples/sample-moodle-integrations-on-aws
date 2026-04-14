@@ -44,3 +44,23 @@ class LayersConstruct(Construct):
             compatible_architectures=[_lambda.Architecture.ARM_64],
             description="Requests library",
         )
+
+        # Shared python-pptx layer for PowerPoint text extraction
+        self.python_pptx_layer = _lambda.LayerVersion(
+            self,
+            "PythonPptxLayer",
+            code=_lambda.Code.from_asset(
+                "layers/python-pptx",
+                bundling={
+                    "image": _lambda.Runtime.PYTHON_3_14.bundling_image,
+                    "command": [
+                        "bash",
+                        "-c",
+                        "pip install -r requirements.txt -t /asset-output/python --platform manylinux2014_aarch64 --only-binary=:all:",
+                    ],
+                },
+            ),
+            compatible_runtimes=[_lambda.Runtime.PYTHON_3_14],
+            compatible_architectures=[_lambda.Architecture.ARM_64],
+            description="python-pptx library for PowerPoint text extraction",
+        )

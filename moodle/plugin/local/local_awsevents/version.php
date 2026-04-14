@@ -10,11 +10,11 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2025102100;        
+$plugin->version   = 2026041300;        
 $plugin->requires  = 2022112800;        // Requires Moodle 4.4+.
 $plugin->component = 'local_awsevents'; 
 $plugin->maturity  = MATURITY_BETA;     
-$plugin->release   = '0.9.0-beta';      
+$plugin->release   = '0.10.0-beta';      
 
 // Plugin dependencies.
 $plugin->dependencies = [

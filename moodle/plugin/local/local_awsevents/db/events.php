@@ -17,4 +17,10 @@ $observers = [
         'eventname' => '\core\event\course_module_created',
         'callback'  => '\local_awsevents\observer::process_event',
     ],
+    // Observer for course module deleted events
+    // Note: Requires recycle bin to be disabled for the course
+    [
+        'eventname' => '\core\event\course_module_deleted',
+        'callback'  => '\local_awsevents\observer::process_event',
+    ],
 ];

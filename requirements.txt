@@ -1,6 +1,6 @@
-aws-lambda-powertools
-aws-cdk-lib==2.232.1
-aws-cdk.aws-bedrock-alpha==2.232.1a0
-constructs>=10.0.0,<11.0.0
-cdk-nag
-crhelper
+aws-lambda-powertools~=3.7
+aws-cdk-lib==2.248.0
+aws-cdk.aws-bedrock-alpha==2.248.0a0
+constructs~=10.0
+cdk-nag~=2.35
+crhelper~=2.0

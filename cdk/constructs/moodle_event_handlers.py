@@ -1,4 +1,5 @@
-import json
+"""Moodle event handlers construct for EventBridge processing and KB indexing."""
+
 from constructs import Construct
 from cdk_nag import NagSuppressions
 from aws_cdk import (
@@ -8,10 +9,10 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as _lambda,
     aws_logs as logs,
-    aws_opensearchserverless as opensearchserverless,
+    aws_s3 as s3,
+    aws_s3vectors as s3vectors,
     aws_secretsmanager as secretsmanager,
     aws_sqs as sqs,
-    CustomResource,
     Duration,
     RemovalPolicy,
     SecretValue,
@@ -20,6 +21,7 @@ from aws_cdk import (
 
 
 class MoodleEventHandlersConstruct(Construct):
+
     def __init__(
         self,
         scope,
@@ -29,99 +31,11 @@ class MoodleEventHandlersConstruct(Construct):
         moodle_domain: str,
         powertools_layer=None,
         requests_layer=None,
+        python_pptx_layer=None,
     ):
         super().__init__(scope, construct_id)
 
         stack = Stack.of(self)
-
-        delay_function_log_group = logs.LogGroup(
-            self,
-            "DelayLogGroup",
-            log_group_name=f"/aws/lambda/{stack.stack_name}-DelayFunction",
-            retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.DESTROY,
-        )
-
-        delay_function_role = iam.Role(
-            self,
-            "DelayFunctionRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            inline_policies={
-                "LogsAndTracingPolicy": iam.PolicyDocument(
-                    statements=[
-                        iam.PolicyStatement(
-                            actions=["logs:CreateLogStream", "logs:PutLogEvents"],
-                            resources=[delay_function_log_group.log_group_arn],
-                        ),
-                        iam.PolicyStatement(
-                            actions=[
-                                "xray:PutTraceSegments",
-                                "xray:PutTelemetryRecords",
-                            ],
-                            resources=[
-                                f"arn:aws:xray:{stack.region}:{stack.account}:*"
-                            ],
-                        ),
-                    ]
-                )
-            },
-        )
-
-        delay_function = _lambda.Function(
-            self,
-            "DelayFunction",
-            code=_lambda.Code.from_asset(
-                "lambda/delay",
-                bundling={
-                    "image": _lambda.Runtime.PYTHON_3_14.bundling_image,
-                    "command": [
-                        "bash",
-                        "-c",
-                        "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output",
-                    ],
-                },
-            ),
-            handler="app.lambda_handler",
-            runtime=_lambda.Runtime.PYTHON_3_14,
-            architecture=_lambda.Architecture.ARM_64,
-            memory_size=128,
-            timeout=Duration.seconds(900),
-            role=delay_function_role,
-            layers=[powertools_layer],
-            log_group=delay_function_log_group,
-            tracing=_lambda.Tracing.ACTIVE,
-            environment={
-                "POWERTOOLS_METRICS_NAMESPACE": "moodle-plugins",
-                "POWERTOOLS_SERVICE_NAME": "Delay",
-                "LOG_LEVEL": "INFO",
-            },
-        )
-        NagSuppressions.add_resource_suppressions(
-            delay_function_role,
-            [
-                {
-                    "id": "AwsSolutions-IAM5",
-                    "reason": "X-Ray tracing requires account-scoped wildcard permissions for trace segments and telemetry records",
-                    "appliesTo": [
-                        "Resource::arn:aws:xray:<AWS::Region>:<AWS::AccountId>:*",
-                    ],
-                }
-            ],
-            apply_to_children=True,
-        )
-
-        # Suppress CDK-nag for any default policy created by the delay function
-        NagSuppressions.add_resource_suppressions_by_path(
-            stack,
-            "/moodle-plugins/MoodleEventHandlers/DelayFunctionRole/DefaultPolicy",
-            [
-                {
-                    "id": "AwsSolutions-IAM5",
-                    "reason": "Lambda function may create default policy with wildcard permissions for service integrations",
-                    "appliesTo": ["Resource::*"],
-                }
-            ],
-        )
 
         index_moodle_file_function_log_group = logs.LogGroup(
             self,
@@ -148,73 +62,72 @@ class MoodleEventHandlersConstruct(Construct):
             ],
         )
 
-        # OpenSearch Serverless encryption policy
-        encryption_policy = opensearchserverless.CfnSecurityPolicy(
+        # S3 Vectors resources for Knowledge Base
+        # Create a vector bucket (specialized S3 bucket for vector storage)
+        vector_bucket = s3vectors.CfnVectorBucket(
             self,
-            "KBEncryptionPolicy",
-            name="moodle-kb-encryption",
-            type="encryption",
-            policy=json.dumps(
-                {
-                    "Rules":[
-                        {
-                            "ResourceType":"collection",
-                            "Resource":["collection/moodle-kb"]
-                        }
-                    ],
-                    "AWSOwnedKey":True
-                }  
+            "KBVectorBucket",
+            vector_bucket_name=f"{stack.stack_name.lower()}-kb-vectors-{stack.account}",
+            encryption_configuration=s3vectors.CfnVectorBucket.EncryptionConfigurationProperty(
+                sse_type="AES256"
             ),
         )
+        vector_bucket.apply_removal_policy(RemovalPolicy.DESTROY)
 
-        # OpenSearch Serverless network access policy
-        network_policy = opensearchserverless.CfnSecurityPolicy(
+        # Create a vector index within the vector bucket
+        # Titan Embed Text v2 uses 1024 dimensions
+        # CRITICAL: Mark AMAZON_BEDROCK_TEXT as non-filterable to avoid 2KB filterable metadata limit
+        # Bedrock stores chunk text in AMAZON_BEDROCK_TEXT metadata field, which can exceed 2KB
+        # By marking it as non-filterable, it counts toward the 40KB total metadata limit instead
+        vector_index = s3vectors.CfnIndex(
             self,
-            "KBNetworkPolicy",
-            name="moodle-kb-network",
-            type="network",
-            policy=json.dumps(
-                [
-                    {
-                        "Rules":[
-                            {
-                                "ResourceType":"collection",
-                                "Resource":["collection/moodle-kb"]
-                            },
-                            {
-                                "ResourceType":"dashboard",
-                                "Resource":["collection/moodle-kb"]
-                            }
-                        ],
-                        "AllowFromPublic":True
-                    }
-                ]
+            "KBVectorIndex",
+            vector_bucket_arn=vector_bucket.attr_vector_bucket_arn,
+            index_name=f"{stack.stack_name.lower()}-moodle-index",
+            data_type="float32",
+            dimension=1024,  # Titan Embed Text v2 dimension
+            distance_metric="cosine",
+            metadata_configuration=s3vectors.CfnIndex.MetadataConfigurationProperty(
+                non_filterable_metadata_keys=["AMAZON_BEDROCK_TEXT"]
             ),
         )
-
-        # OpenSearch Serverless collection for Knowledge Base
-        kb_collection = opensearchserverless.CfnCollection(
-            self,
-            "KBCollection",
-            name="moodle-kb",
-            type="VECTORSEARCH",
-            standby_replicas="DISABLED",
-        )
-        kb_collection.add_dependency(encryption_policy)
-        kb_collection.add_dependency(network_policy)
+        vector_index.add_dependency(vector_bucket)
+        vector_index.apply_removal_policy(RemovalPolicy.DESTROY)
 
         # Bedrock Knowledge Base execution role
         kb_role = iam.Role(
             self,
             "BedrockKBRole",
-            assumed_by=iam.ServicePrincipal("bedrock.amazonaws.com"),
+            assumed_by=iam.ServicePrincipal(
+                "bedrock.amazonaws.com",
+                conditions={
+                    "StringEquals": {"aws:SourceAccount": stack.account},
+                    "ArnLike": {
+                        "aws:SourceArn": f"arn:{stack.partition}:bedrock:{stack.region}:{stack.account}:knowledge-base/*"
+                    },
+                },
+            ),
             inline_policies={
                 "BedrockKBPolicy": iam.PolicyDocument(
                     statements=[
+                        # S3 Vectors storage permissions
                         iam.PolicyStatement(
-                            actions=["aoss:APIAccessAll"],
-                            resources=[kb_collection.attr_arn],
+                            actions=[
+                                "s3vectors:PutVector",
+                                "s3vectors:PutVectors",
+                                "s3vectors:GetVector",
+                                "s3vectors:GetVectors",
+                                "s3vectors:DeleteVector",
+                                "s3vectors:DeleteVectors",
+                                "s3vectors:ListVectors",
+                                "s3vectors:QueryVectors",
+                            ],
+                            resources=[
+                                vector_bucket.attr_vector_bucket_arn,
+                                f"{vector_bucket.attr_vector_bucket_arn}/*",
+                            ],
                         ),
+                        # Embedding model permissions
                         iam.PolicyStatement(
                             actions=["bedrock:InvokeModel"],
                             resources=[
@@ -226,102 +139,24 @@ class MoodleEventHandlersConstruct(Construct):
             },
         )
 
-        # OpenSearch Serverless data access policy
-        data_access_policy = opensearchserverless.CfnAccessPolicy(
-            self,
-            "KBDataAccessPolicy",
-            name="moodle-kb-access",
-            type="data",
-            policy=json.dumps(
-                [
-                    {
-                        "Rules": [
-                            {
-                                "ResourceType": "collection",
-                                "Resource": [f"collection/{kb_collection.name}"],
-                                "Permission": [
-                                    "aoss:CreateCollectionItems",
-                                    "aoss:DeleteCollectionItems",
-                                    "aoss:UpdateCollectionItems",
-                                    "aoss:DescribeCollectionItems",
-                                ],
-                            },
-                            {
-                                "ResourceType": "index",
-                                "Resource": [f"index/{kb_collection.name}/*"],
-                                "Permission": [
-                                    "aoss:CreateIndex",
-                                    "aoss:DeleteIndex",
-                                    "aoss:UpdateIndex",
-                                    "aoss:DescribeIndex",
-                                    "aoss:ReadDocument",
-                                    "aoss:WriteDocument",
-                                ],
-                            },
-                        ],
-                        "Principal": [
-                            kb_role.role_arn,
-                            f"arn:{stack.partition}:iam::{stack.account}:role/cdk-{qualifier}-cfn-exec-role-{stack.account}-{stack.region}",
-                        ],
-                    }
-                ],
-                indent=2,
-            ),
-        )
-
-        # OpenSearch Serverless vector index
-        index_name = "moodle-index"
-        kb_index = opensearchserverless.CfnIndex(
-            self,
-            "moodle-index",
-            index_name=f"{index_name}",
-            collection_endpoint=kb_collection.attr_collection_endpoint,
-            settings={
-                "index": {
-                    "knn": True,
+        NagSuppressions.add_resource_suppressions(
+            kb_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "Bedrock Knowledge Base requires wildcard permissions for S3 Vectors operations on bucket objects",
+                    "appliesTo": [
+                        "Resource::<MoodleEventHandlersKBVectorBucket1F67A350.VectorBucketArn>/*",
+                    ],
                 }
-            },
-            mappings={
-                "properties": {
-                    "vector": {
-                        "type": "knn_vector",
-                        "dimension": 1024,
-                        "method": {
-                            "name": "hnsw",
-                            "engine": "faiss",
-                            "parameters": {
-                                "m": 16,
-                                "ef_construction": 512,
-                            },
-                            "space_type": "l2",
-                        },
-                    },
-                    "text": {
-                        "type": "text",
-                    },
-                    "metadata": {
-                        "type": "text",
-                        "index": False,
-                    },
-                }
-            },
+            ],
         )
-        kb_index.add_dependency(data_access_policy)
 
-        delay_function_custom = CustomResource(
-            stack,
-            "DelayFunctionCustom",
-            service_token=delay_function.function_arn,
-            properties={"SleepSeconds": 30},
-            service_timeout=Duration.minutes(2),
-        )
-        delay_function_custom.node.add_dependency(kb_index)
-
-        # Bedrock Knowledge Base
+        # Bedrock Knowledge Base with S3 Vectors
         knowledge_base = bedrock.CfnKnowledgeBase(
             self,
             "MoodleFilesKB",
-            name=f"{stack.stack_name}-MoodleFiles",
+            name=f"{stack.stack_name}-MoodleFilesKB",
             role_arn=kb_role.role_arn,
             knowledge_base_configuration=bedrock.CfnKnowledgeBase.KnowledgeBaseConfigurationProperty(
                 type="VECTOR",
@@ -330,24 +165,19 @@ class MoodleEventHandlersConstruct(Construct):
                 ),
             ),
             storage_configuration=bedrock.CfnKnowledgeBase.StorageConfigurationProperty(
-                type="OPENSEARCH_SERVERLESS",
-                opensearch_serverless_configuration=bedrock.CfnKnowledgeBase.OpenSearchServerlessConfigurationProperty(
-                    collection_arn=kb_collection.attr_arn,
-                    vector_index_name=index_name,
-                    field_mapping=bedrock.CfnKnowledgeBase.OpenSearchServerlessFieldMappingProperty(
-                        vector_field="vector",
-                        text_field="text",
-                        metadata_field="metadata",
-                    ),
+                type="S3_VECTORS",
+                s3_vectors_configuration=bedrock.CfnKnowledgeBase.S3VectorsConfigurationProperty(
+                    vector_bucket_arn=vector_bucket.attr_vector_bucket_arn,
+                    index_arn=vector_index.attr_index_arn,
                 ),
             ),
         )
-        knowledge_base.add_dependency(delay_function_custom.node.default_child)
+        knowledge_base.add_dependency(vector_index)
 
         knowledge_base_log_group = logs.LogGroup(
             self,
             "BedrockKBLogGroup",
-            log_group_name=f"/aws/bedrock/{stack.stack_name}-knowledgebases",
+            log_group_name=f"/aws/bedrock/{stack.stack_name}-kb-logs",
             retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY,
         )
@@ -355,7 +185,7 @@ class MoodleEventHandlersConstruct(Construct):
         knowledge_base_log_delivery_source = logs.CfnDeliverySource(
             self,
             "KnowledgeBaseLogSource",
-            name=f"{stack.stack_name}-KnowledgeBaseLogSource",
+            name=f"{stack.stack_name}-KB-LogSource",
             log_type="APPLICATION_LOGS",
             resource_arn=knowledge_base.attr_knowledge_base_arn,
         )
@@ -363,7 +193,7 @@ class MoodleEventHandlersConstruct(Construct):
         knowledge_base_log_delivery_destination = logs.CfnDeliveryDestination(
             self,
             "KnowledgeBaseLogDestination",
-            name=f"{stack.stack_name}-KnowledgeBaseLogDestination",
+            name=f"{stack.stack_name}-KB-LogDest",
             destination_resource_arn=knowledge_base_log_group.log_group_arn,
         )
 
@@ -387,7 +217,7 @@ class MoodleEventHandlersConstruct(Construct):
             self,
             "KnowledgeBaseLogDelivery",
             delivery_destination_arn=knowledge_base_log_delivery_destination.attr_arn,
-            delivery_source_name=f"{stack.stack_name}-KnowledgeBaseLogSource",
+            delivery_source_name=f"{stack.stack_name}-KB-LogSource",
         )
         knowledge_base_log_delivery.add_dependency(
             knowledge_base_logs_resource_policy.node.default_child
@@ -403,6 +233,32 @@ class MoodleEventHandlersConstruct(Construct):
             data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(
                 type="CUSTOM"
             ),
+        )
+
+        # S3 staging bucket for large file ingestion into Knowledge Base.
+        # Files exceeding the 6MB IngestKnowledgeBaseDocuments API limit are
+        # uploaded here first, then referenced via S3 location during ingestion.
+        kb_staging_bucket = s3.Bucket(
+            self,
+            "KBStagingBucket",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            lifecycle_rules=[
+                s3.LifecycleRule(expiration=Duration.days(1)),
+            ],
+        )
+
+        NagSuppressions.add_resource_suppressions(
+            kb_staging_bucket,
+            [
+                {
+                    "id": "AwsSolutions-S1",
+                    "reason": "Staging bucket for temporary KB ingestion files; access logging not required for short-lived objects",
+                }
+            ],
         )
 
         index_moodle_file_function_role = iam.Role(
@@ -442,7 +298,7 @@ class MoodleEventHandlersConstruct(Construct):
             memory_size=256,
             timeout=Duration.seconds(30),
             role=index_moodle_file_function_role,
-            layers=[powertools_layer, requests_layer],
+            layers=[powertools_layer, requests_layer, python_pptx_layer],
             log_group=index_moodle_file_function_log_group,
             tracing=_lambda.Tracing.ACTIVE,
             reserved_concurrent_executions=1,
@@ -454,6 +310,8 @@ class MoodleEventHandlersConstruct(Construct):
                 "MOODLE_TOKEN_SECRET_NAME": moodle_token_secret.secret_name,
                 "KNOWLEDGE_BASE_ID": knowledge_base.attr_knowledge_base_id,
                 "DATA_SOURCE_ID": knowledge_base_data_source.attr_data_source_id,
+                "KB_STAGING_BUCKET": kb_staging_bucket.bucket_name,
+                "AWS_ACCOUNT_ID": stack.account,
             },
         )
         NagSuppressions.add_resource_suppressions(
@@ -471,7 +329,7 @@ class MoodleEventHandlersConstruct(Construct):
         )
 
         moodle_token_secret.grant_read(index_moodle_file_function)
-        
+
         # Suppress CDK-nag for the default policy created by grant_read
         NagSuppressions.add_resource_suppressions_by_path(
             stack,
@@ -484,15 +342,55 @@ class MoodleEventHandlersConstruct(Construct):
                 }
             ],
         )
-        
+
         index_moodle_file_function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=[
                     "bedrock:StartIngestionJob",
                     "bedrock:IngestKnowledgeBaseDocuments",
+                    "bedrock:DeleteKnowledgeBaseDocuments",
+                    "bedrock:Retrieve",
                 ],
                 resources=[knowledge_base.attr_knowledge_base_arn],
             )
+        )
+
+        # Grant Lambda write access to staging bucket for large files
+        kb_staging_bucket.grant_put(index_moodle_file_function)
+
+        # Grant KB role read access to staging bucket for S3-based ingestion
+        kb_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetObject"],
+                resources=[kb_staging_bucket.arn_for_objects("*")],
+            )
+        )
+
+        NagSuppressions.add_resource_suppressions(
+            kb_role.node.find_child("DefaultPolicy"),
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "KB role needs wildcard to read any staged file from the staging bucket",
+                    "appliesTo": [
+                        "Resource::<MoodleEventHandlersKBStagingBucket74449C39.Arn>/*",
+                    ],
+                }
+            ],
+        )
+
+        NagSuppressions.add_resource_suppressions(
+            index_moodle_file_function.role.node.find_child("DefaultPolicy"),
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "S3 grant_put requires wildcard object key and s3:Abort* for multipart uploads",
+                    "appliesTo": [
+                        "Action::s3:Abort*",
+                        "Resource::<MoodleEventHandlersKBStagingBucket74449C39.Arn>/*",
+                    ],
+                }
+            ],
         )
 
         # DLQ for failed events
@@ -523,6 +421,25 @@ class MoodleEventHandlersConstruct(Construct):
                 detail={
                     "eventname": ["\\core\\event\\course_module_created"],
                     "action": ["created"],
+                },
+            ),
+            targets=[
+                events_targets.LambdaFunction(
+                    index_moodle_file_function,
+                    dead_letter_queue=index_moodle_file_dlq,
+                )
+            ],
+        )
+
+        events.Rule(
+            self,
+            "DeleteMoodleFileRule",
+            event_bus=moodle_event_bus,
+            event_pattern=events.EventPattern(
+                source=["moodle.events"],
+                detail={
+                    "eventname": ["\\core\\event\\course_module_deleted"],
+                    "action": ["deleted"],
                 },
             ),
             targets=[

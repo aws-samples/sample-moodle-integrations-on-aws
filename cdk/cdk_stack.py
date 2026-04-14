@@ -78,6 +78,7 @@ class CdkStack(Stack):
             moodle_domain=moodle_domain,
             powertools_layer=layers.powertools_layer,
             requests_layer=layers.requests_layer,
+            python_pptx_layer=layers.python_pptx_layer,
         )
 
         # CloudFormation outputs
