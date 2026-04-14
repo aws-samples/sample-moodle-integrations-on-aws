@@ -1,4 +1,3 @@
-pytest~=6.2
 semgrep~=1.113
 bandit~=1.8
 pip-licenses~=5.0
