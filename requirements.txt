@@ -1,5 +1,5 @@
 aws-lambda-powertools~=3.7
-aws-cdk-lib==2.248.0
+aws-cdk-lib==2.253.0
 aws-cdk.aws-bedrock-alpha==2.248.0a0
 constructs~=10.0
 cdk-nag~=2.35
