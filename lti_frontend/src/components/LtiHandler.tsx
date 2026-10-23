@@ -1,32 +1,40 @@
 import { useEffect, useState } from 'react';
 import { Button, ColumnLayout, Header, PromptInput, SpaceBetween, TextContent, Spinner, Alert, Container } from '@cloudscape-design/components';
 
+// LTI 1.3 context claim (https://purl.imsglobal.org/spec/lti/claim/context)
+interface LtiContext {
+  id: string;
+  label?: string;
+  title?: string;
+  type?: string[];
+}
+
 interface UserInfo {
   user_id: string;
   username?: string;
   context_title?: string;
-  context?: any;
+  context?: LtiContext;
 }
 
+const MISSING_TOKEN_ERROR = 'No authentication token found. Please launch from Moodle.';
+
+const getTokenFromHash = (): string | null =>
+  window.location.hash.match(/token=([^&]+)/)?.[1] ?? null;
+
 const LtiHandler = () => {
+  // Read the token during the first render so the "no token" case is initial
+  // state rather than a synchronous setState inside the effect.
+  const [token] = useState<string | null>(getTokenFromHash);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(token !== null);
+  const [error, setError] = useState<string | null>(token ? null : MISSING_TOKEN_ERROR);
   const [value, setValue] = useState<string>("This text contains information to translate");
 
   useEffect(() => {
-    // Extract token from URL hash
-    const hash = window.location.hash;
-    const tokenMatch = hash.match(/token=([^&]+)/);
-    
-    if (!tokenMatch) {
-      setError('No authentication token found. Please launch from Moodle.');
-      setLoading(false);
+    if (!token) {
       return;
     }
-    
-    const token = tokenMatch[1];
-    
+
     // Clear token from URL immediately
     window.history.replaceState(null, '', window.location.pathname);
     
@@ -50,7 +58,7 @@ const LtiHandler = () => {
         setError('Authentication failed. Please launch from Moodle.');
         setLoading(false);
       });
-  }, []);
+  }, [token]);
 
   if (loading) {
     return <Spinner size="large" />;
