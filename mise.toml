@@ -5,7 +5,6 @@ AWS_REGION = "us-west-2"
 CDK_DEFAULT_REGION = "{{env.AWS_REGION}}"
 STACK_NAME = "moodle-plugins"
 EVENT_BUS_NAME = "moodle-events"
-POLICY_ARN = ""
 
 [tools]
 node = "22"
@@ -48,6 +47,24 @@ description = "Install frontend dependencies"
 dir = "lti_frontend"
 run = "npm install"
 
+[tasks."policy:create"]
+description = "Create or update the CDK deployment IAM policy and save POLICY_ARN to mise.local.toml"
+run = """
+set -e
+POLICY_NAME="${STACK_NAME}-cdk-deployment"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
+if aws iam get-policy --policy-arn "$ARN" > /dev/null 2>&1; then
+  echo "Policy exists, adding a new default version"
+  aws iam create-policy-version --policy-arn "$ARN" --policy-document file://deployment-least-privilege-policy.json --set-as-default > /dev/null
+else
+  echo "Creating policy $POLICY_NAME"
+  aws iam create-policy --policy-name "$POLICY_NAME" --policy-document file://deployment-least-privilege-policy.json > /dev/null
+fi
+mise set --file mise.local.toml POLICY_ARN="$ARN"
+echo "Saved POLICY_ARN to mise.local.toml: $ARN"
+"""
+
 [tasks."cdk:bootstrap"]
 depends = "site:build"
 description = "Bootstrap CDK toolkit stack"
@@ -56,12 +73,12 @@ if [ -n "$POLICY_ARN" ]; then
   echo "Using least privilege policy: $POLICY_ARN"
   cdk bootstrap --cloudformation-execution-policies "$POLICY_ARN" --toolkit-stack-name CDKToolkit-${STACK_NAME}
 else
-  echo "Using default AdministratorAccess policy (set POLICY_ARN for least privilege)"
+  echo "Using default AdministratorAccess policy (run 'mise run policy:create' for least privilege)"
   cdk bootstrap --toolkit-stack-name CDKToolkit-${STACK_NAME}
 fi
 """
 run_windows = [
-  "if defined POLICY_ARN (echo Using least privilege policy: %POLICY_ARN%) else (echo Using default AdministratorAccess policy - set POLICY_ARN for least privilege)",
+  "if defined POLICY_ARN (echo Using least privilege policy: %POLICY_ARN%) else (echo Using default AdministratorAccess policy - see README to create a least privilege policy and set POLICY_ARN)",
   "if defined POLICY_ARN (cdk bootstrap --cloudformation-execution-policies \"%POLICY_ARN%\" --toolkit-stack-name \"CDKToolkit-%STACK_NAME%\") else (cdk bootstrap --toolkit-stack-name \"CDKToolkit-%STACK_NAME%\")"
 ]
 

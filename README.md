@@ -80,7 +80,7 @@ The solution includes:
    - AWS service provisioning (Lambda, API Gateway, EventBridge, etc.)
    - Resource cleanup and updates
    
-   This policy is significantly more restrictive than using the default `AdministratorAccess` and limits access to only the services needed by the CDK stack. You can use this policy document to create an IAM policy in your AWS account, or reference it when configuring deployment roles.
+   This policy is significantly more restrictive than the default `AdministratorAccess` that CDK attaches to the CloudFormation execution role, and limits access to only the services needed by the CDK stack. See [Configure CDK Deployment Permissions](#3-configure-cdk-deployment-permissions-optional) for how to create it and use it with `cdk bootstrap`.
 
     **Note**: For production deployments, consider using more restrictive policies scoped to specific resource patterns and actions.
 
@@ -201,31 +201,37 @@ The CDK deployment creates a managed IAM policy called `MoodleEventsIAMPolicy` w
   
 ### 3. Configure CDK Deployment Permissions (Optional)
 
-By default, CDK uses the `AdministratorAccess` policy for CloudFormation execution. For enhanced security, you can optionally configure CDK to use least privilege permissions instead.
+CDK deployments involve two sets of permissions:
+
+- **Your own credentials** are used by the `cdk` CLI. They only need permission to assume the CDK bootstrap roles (deploy, file publishing and lookup) and read the bootstrap version parameter. They do not make the changes to your account.
+- **The CloudFormation execution role** (`cdk-<qualifier>-cfn-exec-role-...`) is created by `cdk bootstrap` and is the identity CloudFormation uses to create the stack's resources. By default, bootstrap attaches the `AdministratorAccess` policy to this role.
+
+For enhanced security, you can attach a least privilege policy to the execution role instead.
 
 #### Default approach:
 
-Leave `POLICY_ARN` empty in `mise.toml`:
-```toml
-POLICY_ARN = ""
-```
-
-This uses the default `AdministratorAccess` policy for CloudFormation execution.
+Do nothing. With no `POLICY_ARN` set, `mise run cdk:bootstrap` attaches `AdministratorAccess` to the CloudFormation execution role, so stack changes run with full administrator permissions regardless of what your own credentials can do.
 
 #### Least privilege approach (recommended for production):
 
-If you have an existing IAM policy with the minimum required permissions for CDK deployment, you can configure the deployment to use it:
+The policy in [`deployment-least-privilege-policy.json`](deployment-least-privilege-policy.json) must exist in your account before you bootstrap, because bootstrap attaches it to the CloudFormation execution role.
 
-1. **Create the required IAM policy:**
-   Use the policy document provided in [`deployment-least-privilege-policy.json`](deployment-least-privilege-policy.json) to create an IAM policy with the minimum permissions required for this CDK deployment.
+1. **Create the policy:**
+   ```bash
+   mise run policy:create
+   ```
+   This creates an IAM policy named `<STACK_NAME>-cdk-deployment` (for example `moodle-plugins-cdk-deployment`) and saves its ARN as `POLICY_ARN` in `mise.local.toml`, which is gitignored. If the policy already exists, for instance after you edit the JSON file, it adds a new default version instead. IAM keeps at most 5 versions, so delete an old one with `aws iam delete-policy-version` if you hit the limit.
 
-2. **Update mise.toml:**
-   Edit the `mise.toml` file and update the `POLICY_ARN` line with your policy ARN:
-   ```toml
-   POLICY_ARN = "arn:aws:iam::YOUR-ACCOUNT-ID:policy/YOUR-POLICY-NAME"
+   The task uses your current AWS credentials, which need `iam:CreatePolicy`, `iam:CreatePolicyVersion`, `iam:GetPolicy` and `sts:GetCallerIdentity`. It runs on macOS and Linux. On Windows, create the policy yourself and set the ARN by hand:
+   ```bash
+   aws iam create-policy --policy-name moodle-plugins-cdk-deployment --policy-document file://deployment-least-privilege-policy.json
+   mise set --file mise.local.toml POLICY_ARN="arn:aws:iam::YOUR-ACCOUNT-ID:policy/moodle-plugins-cdk-deployment"
    ```
 
-**Security Note**: When `POLICY_ARN` is set, both your deployment role and the CloudFormation execution role will use the same least privilege policy. When empty, CDK uses `AdministratorAccess` for CloudFormation execution.
+2. **Bootstrap with it:**
+   `mise run cdk:bootstrap` now passes `POLICY_ARN` to `--cloudformation-execution-policies`.
+
+**Security Note**: `POLICY_ARN` is attached only to the CloudFormation execution role, which is the role that creates the stack's resources. 
 
 ### 4. Initialize and Deploy
 
@@ -247,6 +253,7 @@ Managed through `mise.toml`:
 - `mise run clean` - Remove build artifacts
 
 ### CDK Operations
+- `mise run policy:create` - Create or update the least privilege deployment policy and save `POLICY_ARN` to `mise.local.toml`
 - `mise run cdk:bootstrap` - Bootstrap CDK toolkit (uses `POLICY_ARN` if set)
 - `mise run cdk:synth` - Synthesize and check for security issues
 - `mise run cdk:deploy` - Deploy stack to AWS
