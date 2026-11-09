@@ -119,6 +119,7 @@
         "lambda:GetFunction",
         "lambda:UpdateFunctionCode",
         "lambda:UpdateFunctionConfiguration",
+        "lambda:InvokeFunction",
         "lambda:AddPermission",
         "lambda:RemovePermission",
         "lambda:GetPolicy",
