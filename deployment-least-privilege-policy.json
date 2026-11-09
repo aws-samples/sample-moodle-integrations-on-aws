@@ -144,12 +144,34 @@
       ]
     },
     {
+      "Sid": "AttachMoodleEventsPolicyToMoodleRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::*:role/*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::*:policy/MoodleEventsIAMPolicy"
+        }
+      }
+    },
+    {
       "Sid": "PassRolePermissions",
       "Effect": "Allow",
       "Action": [
         "iam:PassRole"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:iam::*:role/moodle-plugins-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "bedrock.amazonaws.com"
+          ]
+        }
+      }
     },
     {
       "Sid": "SQSPermissions",
