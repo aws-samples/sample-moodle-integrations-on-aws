@@ -25,8 +25,9 @@ bin/
 # Mac
 .DS_Store
 
-# VSCode
+# IDE
 .vscode/
+.kiro/
 
 # Project specific
 moodle/plugin/local/awsevents.zip
