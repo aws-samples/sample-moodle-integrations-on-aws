@@ -5,33 +5,13 @@ AWS_REGION = "us-west-2"
 CDK_DEFAULT_REGION = "{{env.AWS_REGION}}"
 STACK_NAME = "moodle-plugins"
 EVENT_BUS_NAME = "moodle-events"
+# Must match "@aws-cdk/core:bootstrapQualifier" in cdk.json
+QUALIFIER = "moodleplug"
 
 [tools]
 node = "22"
 python = "3.13"
 aws-cli = "latest"
-
-[tasks.clean]
-description = "Remove build artifacts and dependencies"
-run = [
-  "rm -rf .venv bin cdk.out",
-  "rm -f licenses-ts.csv licenses-python.txt",
-  "rm -f moodle/plugin/blocks/aitranslator.zip moodle/plugin/local/awsevents.zip",
-  "rm -rf lti_frontend/node_modules lti_frontend/dist",
-  "find . -type d -name '__pycache__' -exec rm -rf {} +"
-]
-run_windows = [
-  "if exist .venv rmdir /s /q .venv",
-  "if exist bin rmdir /s /q bin", 
-  "if exist cdk.out rmdir /s /q cdk.out",
-  "if exist licenses-ts.csv del /q licenses-ts.csv",
-  "if exist licenses-python.txt del /q licenses-python.txt",
-  "if exist moodle\\plugin\\blocks\\aitranslator.zip del /q moodle\\plugin\\blocks\\aitranslator.zip",
-  "if exist moodle\\plugin\\local\\awsevents.zip del /q moodle\\plugin\\local\\awsevents.zip",
-  "if exist lti_frontend\\node_modules rmdir /s /q lti_frontend\\node_modules",
-  "if exist lti_frontend\\dist rmdir /s /q lti_frontend\\dist",
-  "for /d /r . %d in (__pycache__) do @if exist \"%d\" rmdir /s /q \"%d\""
-]
 
 [tasks.init] 
 description = "Install project dependencies"
@@ -46,41 +26,6 @@ run = [
 description = "Install frontend dependencies"
 dir = "lti_frontend"
 run = "npm install"
-
-[tasks."policy:create"]
-description = "Create or update the CDK deployment IAM policy and save POLICY_ARN to mise.local.toml"
-run = """
-set -e
-POLICY_NAME="${STACK_NAME}-cdk-deployment"
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
-if aws iam get-policy --policy-arn "$ARN" > /dev/null 2>&1; then
-  echo "Policy exists, adding a new default version"
-  aws iam create-policy-version --policy-arn "$ARN" --policy-document file://deployment-least-privilege-policy.json --set-as-default > /dev/null
-else
-  echo "Creating policy $POLICY_NAME"
-  aws iam create-policy --policy-name "$POLICY_NAME" --policy-document file://deployment-least-privilege-policy.json > /dev/null
-fi
-mise set --file mise.local.toml POLICY_ARN="$ARN"
-echo "Saved POLICY_ARN to mise.local.toml: $ARN"
-"""
-
-[tasks."cdk:bootstrap"]
-depends = "site:build"
-description = "Bootstrap CDK toolkit stack"
-run = """
-if [ -n "$POLICY_ARN" ]; then
-  echo "Using least privilege policy: $POLICY_ARN"
-  cdk bootstrap --cloudformation-execution-policies "$POLICY_ARN" --toolkit-stack-name CDKToolkit-${STACK_NAME}
-else
-  echo "Using default AdministratorAccess policy (run 'mise run policy:create' for least privilege)"
-  cdk bootstrap --toolkit-stack-name CDKToolkit-${STACK_NAME}
-fi
-"""
-run_windows = [
-  "if defined POLICY_ARN (echo Using least privilege policy: %POLICY_ARN%) else (echo Using default AdministratorAccess policy - see README to create a least privilege policy and set POLICY_ARN)",
-  "if defined POLICY_ARN (cdk bootstrap --cloudformation-execution-policies \"%POLICY_ARN%\" --toolkit-stack-name \"CDKToolkit-%STACK_NAME%\") else (cdk bootstrap --toolkit-stack-name \"CDKToolkit-%STACK_NAME%\")"
-]
 
 [tasks."cdk:synth"]
 description = "Synthesize CDK stack and check for security issues"

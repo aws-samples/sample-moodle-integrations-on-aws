@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#MISE description="Create or update the CDK deployment IAM policies and save POLICY_ARN to mise.local.toml"
+#MISE depends=["policy:validate"]
+set -euo pipefail
+
+# IAM keeps at most 5 versions of a managed policy
+MAX_POLICY_VERSIONS=5
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+arns=""
+for policy in cdk.out/deployment-policies/*.json; do
+  name="${STACK_NAME}-cdk-deployment-$(basename "$policy" .json)"
+  arn="arn:aws:iam::${ACCOUNT_ID}:policy/${name}"
+  if aws iam get-policy --policy-arn "$arn" > /dev/null 2>&1; then
+    count=$(aws iam list-policy-versions --policy-arn "$arn" --query 'length(Versions)' --output text)
+    if [ "$count" -ge "$MAX_POLICY_VERSIONS" ]; then
+      oldest=$(aws iam list-policy-versions --policy-arn "$arn" --query 'sort_by(Versions[?!IsDefaultVersion], &CreateDate)[0].VersionId' --output text)
+      aws iam delete-policy-version --policy-arn "$arn" --version-id "$oldest"
+    fi
+    echo "Updating $name"
+    aws iam create-policy-version --policy-arn "$arn" --policy-document "file://$policy" --set-as-default > /dev/null
+  else
+    echo "Creating $name"
+    aws iam create-policy --policy-name "$name" --policy-document "file://$policy" > /dev/null
+  fi
+  arns="${arns:+$arns,}$arn"
+done
+mise set --file mise.local.toml POLICY_ARN="$arns"
+echo "Saved POLICY_ARN to mise.local.toml: $arns"

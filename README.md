@@ -74,15 +74,7 @@ The solution includes:
 
 1. **AWS Account**: You need a role (or less preferably IAM user) with sufficient permissions to deploy CDK stacks in the chosen region. 
 
-   **Deployment Permissions**: The specific permissions required for deployment are documented in the [`deployment-least-privilege-policy.json`](./deployment-least-privilege-policy.json) file. This policy provides a reduced set of permissions focused specifically on the AWS services used by this stack, including:
-   
-   - CDK stack deployment and management
-   - AWS service provisioning (Lambda, API Gateway, EventBridge, etc.)
-   - Resource cleanup and updates
-   
-   This policy is significantly more restrictive than the default `AdministratorAccess` that CDK attaches to the CloudFormation execution role, and limits access to only the services needed by the CDK stack. See [Configure CDK Deployment Permissions](#3-configure-cdk-deployment-permissions-optional) for how to create it and use it with `cdk bootstrap`.
-
-    **Note**: For production deployments, consider using more restrictive policies scoped to specific resource patterns and actions.
+   **Deployment Permissions**: The permissions CloudFormation needs to deploy this stack are defined in the policy templates in [`deployment-policies/`](./deployment-policies/). They were derived from the CloudTrail record of a full deploy and destroy, and grant only the specific actions used, scoped to this account, region and the stack's own resource names. See [Configure CDK Deployment Permissions](#3-configure-cdk-deployment-permissions-optional) for how to create them and use them with `cdk bootstrap`.
 
 ## Installation
 
@@ -214,22 +206,33 @@ Do nothing. With no `POLICY_ARN` set, `mise run cdk:bootstrap` attaches `Adminis
 
 #### Least privilege approach (recommended for production):
 
-The policy in [`deployment-least-privilege-policy.json`](deployment-least-privilege-policy.json) must exist in your account before you bootstrap, because bootstrap attaches it to the CloudFormation execution role.
+The least privilege permissions are kept as templates in [`deployment-policies/`](deployment-policies/), split into two managed policies (`core` and `services`) to stay under the IAM limit of 6,144 characters per policy. The templates use placeholders for the account ID, region, stack name and bootstrap qualifier, which are filled in when the policies are created. The policies must exist in your account before you bootstrap, because bootstrap attaches them to the CloudFormation execution role.
 
-1. **Create the policy:**
+1. **Create the policies:**
    ```bash
    mise run policy:create
    ```
-   This creates an IAM policy named `<STACK_NAME>-cdk-deployment` (for example `moodle-plugins-cdk-deployment`) and saves its ARN as `POLICY_ARN` in `mise.local.toml`, which is gitignored. If the policy already exists, for instance after you edit the JSON file, it adds a new default version instead. IAM keeps at most 5 versions, so delete an old one with `aws iam delete-policy-version` if you hit the limit.
+   This renders the templates into `cdk.out/deployment-policies/`, validates them, then creates IAM policies named `<STACK_NAME>-cdk-deployment-core` and `<STACK_NAME>-cdk-deployment-services`. Their ARNs are saved as a comma-separated `POLICY_ARN` in `mise.local.toml`, which is gitignored. If the policies already exist, for instance after you change a template, the task adds a new default version and removes the oldest version when IAM's limit of 5 is reached.
 
-   The task uses your current AWS credentials, which need `iam:CreatePolicy`, `iam:CreatePolicyVersion`, `iam:GetPolicy` and `sts:GetCallerIdentity`. It runs on macOS and Linux. On Windows, create the policy yourself and set the ARN by hand:
+   Validation (`mise run policy:validate`) fails if a rendered policy is over the size limit, contains a service-wide wildcard action such as `s3:*`, or has errors or security warnings from [IAM Access Analyzer policy validation](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-policy-validation.html).
+
+   The task uses your current AWS credentials, which need `sts:GetCallerIdentity`, `access-analyzer:ValidatePolicy`, `iam:GetPolicy`, `iam:CreatePolicy`, `iam:CreatePolicyVersion`, `iam:ListPolicyVersions` and `iam:DeletePolicyVersion`. It runs on macOS and Linux. On Windows, replace the `${...}` placeholders in each template with your values, create each policy with `aws iam create-policy`, and set the ARNs by hand:
    ```bash
-   aws iam create-policy --policy-name moodle-plugins-cdk-deployment --policy-document file://deployment-least-privilege-policy.json
-   mise set --file mise.local.toml POLICY_ARN="arn:aws:iam::YOUR-ACCOUNT-ID:policy/moodle-plugins-cdk-deployment"
+   mise set --file mise.local.toml POLICY_ARN="arn:aws:iam::YOUR-ACCOUNT-ID:policy/moodle-plugins-cdk-deployment-core,arn:aws:iam::YOUR-ACCOUNT-ID:policy/moodle-plugins-cdk-deployment-services"
    ```
 
-2. **Bootstrap with it:**
-   `mise run cdk:bootstrap` now passes `POLICY_ARN` to `--cloudformation-execution-policies`.
+2. **Bootstrap with them:**
+   `mise run cdk:bootstrap` passes `POLICY_ARN` to `--cloudformation-execution-policies`. Running it again on an existing bootstrap stack replaces the attached policies.
+
+**Scope of the policies:**
+- Actions are listed individually, with no service-wide wildcards.
+- Resources are limited to your account and region, and to names starting with the stack name (`moodle-plugins-*`) wherever the stack controls the name. Bedrock knowledge bases, CloudFront resources, API Gateway APIs and the BucketDeployment layer get generated IDs, so they are scoped to your account and region instead.
+- `iam:PassRole` is limited to the stack's roles and to the Lambda and Bedrock services. Managed policy attachments are limited to `AWSLambdaBasicExecutionRole` on the stack's roles and to `MoodleEventsIAMPolicy` on the Moodle role you configure in `moodle_role_name`.
+- A few read actions and the CloudWatch Logs resource policy actions don't support resource-level permissions, so they use `Resource: "*"`, restricted to your deployment region and `us-east-1`.
+
+If you add resources to the stack, add the matching permissions to the templates. A missing permission shows up as an `AccessDenied` error from the execution role during `cdk deploy`.
+
+The bootstrap qualifier is set to `moodleplug` (`QUALIFIER` in `mise.toml` and `@aws-cdk/core:bootstrapQualifier` in `cdk.json`, which must match). This gives the sample its own bootstrap stack and execution role, so its least privilege policies don't affect other CDK apps in the same account and region.
 
 **Security Note**: `POLICY_ARN` is attached only to the CloudFormation execution role, which is the role that creates the stack's resources. 
 
@@ -246,14 +249,15 @@ mise run package
 
 ## Available Commands
 
-Managed through `mise.toml`:
+Managed through `mise.toml`, with longer scripts as [file tasks](https://mise.jdx.dev/tasks/file-tasks.html) in `mise-tasks/`:
 
 ### Development
 - `mise run init` - Install all dependencies
 - `mise run clean` - Remove build artifacts
 
 ### CDK Operations
-- `mise run policy:create` - Create or update the least privilege deployment policy and save `POLICY_ARN` to `mise.local.toml`
+- `mise run policy:validate` - Render and validate the least privilege deployment policies
+- `mise run policy:create` - Create or update the least privilege deployment policies and save `POLICY_ARN` to `mise.local.toml`
 - `mise run cdk:bootstrap` - Bootstrap CDK toolkit (uses `POLICY_ARN` if set)
 - `mise run cdk:synth` - Synthesize and check for security issues
 - `mise run cdk:deploy` - Deploy stack to AWS
@@ -540,8 +544,10 @@ When a user interacts with the LTI plugin in the LMS:
 │   ├── blocks/             # AI Translator block
 │   └── local/              # AWS Events local plugin
 ├── layers/                 # Lambda layers
+├── deployment-policies/    # Least privilege CloudFormation execution policy templates
 ├── app.py                  # CDK app entry point
 ├── cdk.json                # CDK configuration
+├── mise-tasks/             # Longer mise task scripts (Windows variants as .cmd)
 └── mise.toml               # Task runner configuration
 ```
 

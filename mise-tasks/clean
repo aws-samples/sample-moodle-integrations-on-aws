@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Remove build artifacts and dependencies"
+set -euo pipefail
+
+rm -rf .venv bin cdk.out
+rm -f licenses-ts.csv licenses-python.txt
+rm -f moodle/plugin/blocks/aitranslator.zip moodle/plugin/local/awsevents.zip
+rm -rf lti_frontend/node_modules lti_frontend/dist
+find . -type d -name '__pycache__' -exec rm -rf {} +

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Render the deployment policy templates for this account, region and stack"
+set -euo pipefail
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+STACK_NAME_LOWER=$(echo "$STACK_NAME" | tr '[:upper:]' '[:lower:]')
+mkdir -p cdk.out/deployment-policies
+for template in deployment-policies/*.template.json; do
+  part=$(basename "$template" .template.json)
+  sed -e "s|\${ACCOUNT_ID}|$ACCOUNT_ID|g" -e "s|\${REGION}|$AWS_REGION|g" -e "s|\${STACK_NAME_LOWER}|$STACK_NAME_LOWER|g" -e "s|\${STACK_NAME}|$STACK_NAME|g" -e "s|\${QUALIFIER}|$QUALIFIER|g" "$template" > "cdk.out/deployment-policies/$part.json"
+  echo "Rendered cdk.out/deployment-policies/$part.json"
+done
