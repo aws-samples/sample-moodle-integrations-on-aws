@@ -67,6 +67,7 @@ run_windows = [
 
 [tasks."cdk:synth"]
 description = "Synthesize CDK stack and check for security issues"
+depends = "site:build"
 run = "cdk synth 2>&1 | tee /dev/tty | grep -E \"(Error|Warning).*AwsSolutions\" | wc -l"
 run_windows = [
   "cdk synth > synth_output.txt 2>&1",
@@ -82,6 +83,7 @@ run = "cdk deploy --require-approval never"
 
 [tasks."cdk:sync"]
 description = "Watch and deploy CDK changes with hotswap"
+depends = "site:build"
 run = "cdk deploy --hotswap-fallback --watch"
 
 [tasks."cdk:destroy"]
