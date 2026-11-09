@@ -90,12 +90,16 @@ mise trust
 
 **Configure AWS Region:**
 
-Update the AWS region in `mise.toml` to match your chosen deployment region:
-
+Set the AWS region in `mise.local.toml` to match your chosen deployment region. This file holds your personal settings, overrides the defaults in `mise.toml`, and is excluded from git. The following command creates it if it does not exist:
+```bash
+mise set --file mise.local.toml AWS_REGION="your-preferred-region"
+```
+This results in the following in `mise.local.toml`:
 ```toml
-# Edit mise.toml and update the AWS_REGION line:
+[env]
 AWS_REGION = "your-preferred-region"
 ```
+If you do not set a region, `mise.toml` defaults to `us-west-2`.
 
 Copy the template and update with your values:
 
@@ -105,7 +109,7 @@ cp cdk.local.json.template cdk.local.json
 
 **Configuration parameters:**
 
-- **domain_name**: The domain name of your Moodle environment without the hostname (e.g., if your Moodle URL was `https://moodle.example.com`, `example.com` should be used). 
+- **domain_name**: The domain name of your Moodle environment without the hostname (e.g., if your Moodle URL was `https://moodle.example.com`, `example.com` should be used). Do not include `https://` or a trailing `/`: the stack builds the Moodle URL from these values, and the LTI launch compares it to the issuer in the token, so `example.com/` fails with an "Invalid issuer" error.
 - **host_name**: Subdomain prefix for your Moodle instance (e.g., if your Moodle URL was `https://moodle.example.com`, `moodle` should be used).
 - **moodle_role_name**: (Optional) Name of an existing IAM role for AWS-hosted Moodle (e.g., EC2 instance role, ECS task role, or EKS service account role). If provided, the EventBridge policy will be automatically attached to this role. If empty, you must manually configure authentication using IAM Roles Anywhere (recommended) or IAM user with access keys.
 
