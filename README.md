@@ -474,7 +474,7 @@ Required for file indexing:
    - User: `API IndexFiles`
    - Service: `IndexFiles`
    - Valid until: unticked
-1. In AWS Secrets Manager update the Secret value of the secret with a name starting with `MoodleEventHandlersMoodleTo` with the Token just generated
+1. In AWS Secrets Manager update the Secret value of the secret named `moodle-plugins/moodle/token` (`<STACK_NAME>/moodle/token` if you changed `STACK_NAME`) with the Token just generated
 
 **Verification:**
 
