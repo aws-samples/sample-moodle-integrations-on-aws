@@ -587,7 +587,8 @@ def lambda_handler(
                 if attempt == max_retries - 1:
                     break  # Don't sleep after last attempt
                 base_delay = min(2 ** attempt, 4)  # Cap at 4s to stay within Lambda timeout
-                jitter = random.uniform(0, base_delay * 0.5)
+                # Retry jitter only spreads out requests; it is not security-sensitive.
+                jitter = random.uniform(0, base_delay * 0.5)  # nosec B311
                 delay = base_delay + jitter
                 logger.info(f"Module {module_id} not found on attempt {attempt + 1}/{max_retries}, retrying in {delay:.1f}s")
                 time.sleep(delay)
