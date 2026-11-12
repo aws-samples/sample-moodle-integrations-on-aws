@@ -193,7 +193,7 @@ The CDK deployment creates a managed IAM policy called `MoodleEventsIAMPolicy` w
   - Never commit access keys to version control
   - **Update IP addresses**: If your Moodle server IP addresses change, update the policy condition accordingly
   
-  The IP address restriction in the policy above ensures that even if access keys are compromised, they can only be used from your authorized Moodle server locations.
+  The IP address restriction in the policy above helps reduce the risk that compromised access keys can be used from outside your authorized Moodle server locations.
   
 ### 3. Configure CDK Deployment Permissions (Optional)
 
@@ -410,7 +410,7 @@ When an event occurs in the LMS, the following process takes place:
 
 3. A rule receives incoming events and routes them to appropriate AWS Services based on matching event patterns or records are processed off the stream and processed by the consumer.
 
-This architecture ensures secure communication between the LMS and AWS Services allowing LMS platform capabilities to be extended with AWS Services.
+This architecture is designed to help secure communication between the LMS and AWS Services, allowing LMS platform capabilities to be extended with AWS Services.
 
 #### Installation
 
