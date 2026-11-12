@@ -10,7 +10,7 @@
 
 $string['pluginname'] = 'AWS Events';
 $string['debug'] = 'Enable Debug Logging';
-$string['debug_desc'] = 'Enable detailed debug logging for AWS EventBridge events';
+$string['debug_desc'] = 'Enable detailed debug logging for AWS EventBridge events. Use only while troubleshooting and keep it disabled in production.';
 $string['awsauthmethod'] = 'AWS Authentication Method';
 $string['awsauthmethod_desc'] = 'Choose how to authenticate with AWS: using access keys or EC2 instance role';
 $string['awsauthmethod_key'] = 'Access Keys';

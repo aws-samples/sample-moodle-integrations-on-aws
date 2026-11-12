@@ -16,7 +16,8 @@ tracer = Tracer()
 
 
 @logger.inject_lambda_context
-@tracer.capture_lambda_handler
+# The policy's principalId is the Moodle username, so keep the response out of X-Ray.
+@tracer.capture_lambda_handler(capture_response=False)
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     """Lambda authorizer handler for API Gateway TOKEN authorization.
 
@@ -55,7 +56,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return generate_policy("user", "Deny", event["methodArn"])
 
 
-@tracer.capture_method
+# The return value is the Moodle username, so keep it out of X-Ray.
+@tracer.capture_method(capture_response=False)
 def validate_moodle_token(token: str, moodle_url: str) -> str:
     """Validate Moodle web service token using core_webservice_get_site_info.
 
@@ -107,14 +109,8 @@ def validate_moodle_token(token: str, moodle_url: str) -> str:
         # Successful validation - extract username
         username = result.get("username")
         if username:
-            logger.info(
-                "Token validation successful",
-                extra={
-                    "username": username,
-                    "userid": result.get("userid"),
-                    "firstname": result.get("firstname"),
-                },
-            )
+            # Username, user ID and first name are PII, so they stay out of the logs.
+            logger.info("Token validation successful")
             return username
 
         logger.warning("Token validation returned no username")

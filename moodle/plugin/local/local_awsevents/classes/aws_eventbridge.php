@@ -127,9 +127,12 @@ class aws_eventbridge {
             ];
 
             if ($debug) {
-                debugging('Sending event to EventBridge: ' . $event->eventname . 
-                          ' to bus: ' . $this->eventbus . 
-                          ' with detail: ' . $detail, DEBUG_DEVELOPER);
+                // The detail payload holds user IDs, so log only the event name and object IDs.
+                debugging('Sending event to EventBridge: ' . $event->eventname .
+                          ' to bus: ' . $this->eventbus .
+                          ' (objectid: ' . $event->objectid .
+                          ', contextid: ' . $event->contextid .
+                          ', courseid: ' . $event->courseid . ')', DEBUG_DEVELOPER);
             }
 
             // Send event to EventBridge (using cached client)

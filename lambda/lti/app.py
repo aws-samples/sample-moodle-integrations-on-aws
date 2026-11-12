@@ -141,7 +141,7 @@ def extract_lti_user_info(payload: dict) -> dict:
     }
 
 @app.post("/lti/login")
-@tracer.capture_method
+@tracer.capture_method(capture_response=False)
 def oidc_login():
     """Handle OIDC login initiation for LTI 1.3.
     
@@ -180,7 +180,8 @@ def oidc_login():
                 'ttl': int(time.time()) + STATE_NONCE_TTL_SECONDS
             }
         )
-        logger.debug(f"Stored state/nonce for OIDC flow", extra={"state": state})
+        # State and nonce are CSRF/replay secrets, so they are never logged.
+        logger.debug("Stored state/nonce for OIDC flow")
 
         url = (
             f"{OIDC_AUTH_URL}?"
@@ -196,7 +197,8 @@ def oidc_login():
             f"lti_message_hint={urllib.parse.quote(lti_message_hint)}"
         )
 
-        logger.debug(f"Redirecting to: {url}")
+        # The full URL carries state, nonce and login_hint, so log only the endpoint.
+        logger.debug("Redirecting to OIDC auth endpoint", extra={"endpoint": OIDC_AUTH_URL})
 
         return Response(
             status_code=302,
@@ -299,7 +301,7 @@ def verify_lti_token(id_token: str, moodle_url: str, client_id: str, expected_la
         raise BadRequestError(f"Invalid ID token: {str(e)}")
 
 @app.post("/lti/launch")
-@tracer.capture_method
+@tracer.capture_method(capture_response=False)
 def lti_launch():
     """Handle LTI launch requests from Moodle.
     
@@ -345,14 +347,14 @@ def lti_launch():
         response = table.get_item(Key={'state': state})
         
         if 'Item' not in response:
-            logger.warning("Invalid or expired state", extra={"state": state})
+            logger.warning("Invalid or expired state")
             raise BadRequestError("Invalid or expired state - possible CSRF attack")
         
         stored_nonce = response['Item']['nonce']
         
         # Delete state immediately (one-time use)
         table.delete_item(Key={'state': state})
-        logger.debug("State validated and consumed", extra={"state": state})
+        logger.debug("State validated and consumed")
 
         # Get Moodle URL and client ID for verification
         moodle_url = MOODLE_URL
@@ -365,10 +367,7 @@ def lti_launch():
         
         # Validate nonce matches stored value
         if payload.get('nonce') != stored_nonce:
-            logger.error("Nonce mismatch", extra={
-                "expected": stored_nonce,
-                "received": payload.get('nonce')
-            })
+            logger.error("Nonce mismatch")
             raise BadRequestError("Nonce mismatch - possible CSRF attack")
         
         logger.debug("Verified LTI token with valid nonce")
@@ -376,11 +375,8 @@ def lti_launch():
         # Extract user information
         user_info = extract_lti_user_info(payload)
 
-        logger.info("User authenticated successfully", extra={
-            'user_id': user_info['user_id'],
-            'username': user_info['username'],
-            'context_title': user_info['context_title']
-        })
+        # User identifiers and course titles are PII, so they stay out of the logs.
+        logger.info("User authenticated successfully")
         
         # Generate signed JWT session token
         jwt_secret = get_jwt_secret()
@@ -426,7 +422,7 @@ def lti_launch():
         raise
 
 @app.get("/api/user/info")
-@tracer.capture_method
+@tracer.capture_method(capture_response=False)
 def get_user_info():
     """Return user info from JWT token (one-time use).
     
@@ -486,8 +482,11 @@ def get_user_info():
         logger.warning(f"Invalid JWT token: {str(e)}")
         raise BadRequestError("Invalid session")
 
-@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST, log_event=True)
-@tracer.capture_lambda_handler
+# log_event stays off: launch events carry the Moodle id_token in the body and
+# API events carry the session JWT in the Authorization header.
+@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_REST)
+# Responses carry state/nonce, the session JWT and user info, so keep them out of X-Ray.
+@tracer.capture_lambda_handler(capture_response=False)
 def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> Dict[str, Any]:
     """Lambda handler for API Gateway events.
     

@@ -62,7 +62,11 @@ class observer {
         } catch (\Exception $e) {
             debugging('Error in AWS Events observer: ' . $e->getMessage(), DEBUG_NORMAL);
             if ($debug) {
-                debugging('Event that caused error: ' . $event->eventname . ' - ' . json_encode($event), DEBUG_DEVELOPER);
+                // Log only the event name and object IDs; the full event holds user IDs.
+                debugging('Event that caused error: ' . $event->eventname .
+                          ' (objectid: ' . $event->objectid .
+                          ', contextid: ' . $event->contextid .
+                          ', courseid: ' . $event->courseid . ')', DEBUG_DEVELOPER);
             }
         }
     }
