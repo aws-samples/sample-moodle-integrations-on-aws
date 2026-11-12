@@ -12,6 +12,10 @@ QUALIFIER = "moodleplug"
 node = "22"
 python = "3.13"
 aws-cli = "latest"
+uv = "0.13.7"
+# Used by `mise run audit`. The Python scanners are in requirements-dev.txt
+shellcheck = "0.11.0"
+
 
 [tasks.init] 
 description = "Install project dependencies"
@@ -84,3 +88,41 @@ run_windows = [
 [tasks.package]
 description = "Package all Moodle plugins"
 depends = ["events:package", "aitranslator:package"]
+
+# Security audit tasks. `mise run audit` runs them all and saves the output
+# to audit-reports/ as evidence for a security review.
+
+[tasks."audit:secrets"]
+description = "Scan git-tracked files for hardcoded secrets"
+run = "detect-secrets scan | python -c \"import json,sys; r=json.load(sys.stdin)['results']; print(json.dumps(r, indent=2) if r else 'No secrets found'); sys.exit(1 if r else 0)\""
+
+[tasks."audit:deps:python"]
+description = "Check Python dependencies for known vulnerabilities"
+run = "pip-audit -r requirements.txt -r requirements-dev.txt -r lambda/lti/requirements.txt -r layers/requests/requirements.txt -r layers/python-pptx/requirements.txt"
+
+[tasks."audit:deps:npm"]
+description = "Check frontend dependencies for known vulnerabilities"
+dir = "{{ config_root }}/lti_frontend"
+run = "npm audit --audit-level=high"
+
+[tasks."audit:sast:python"]
+description = "Scan Python code for security issues"
+run = "bandit -r app.py cdk lambda"
+
+[tasks."audit:cdk-nag"]
+description = "Synthesize the CDK app and fail on cdk-nag errors"
+depends = "site:build"
+run = "cdk synth --quiet"
+
+[tasks."audit:shell"]
+description = "Lint the shell task scripts"
+run = "shellcheck mise-tasks/audit mise-tasks/clean mise-tasks/cdk/bootstrap mise-tasks/policy/create mise-tasks/policy/render mise-tasks/policy/validate"
+
+[tasks."audit:licenses"]
+description = "List third-party licenses for review"
+# The Python list is built in a throwaway environment holding only what the
+# requirements files install, so stray packages in .venv don't appear in it.
+run = [
+  "uv run --isolated --no-project --with-requirements requirements.txt --with-requirements requirements-dev.txt --with-requirements lambda/lti/requirements.txt --with-requirements layers/requests/requirements.txt --with-requirements layers/python-pptx/requirements.txt --with pip-licenses==5.5.5 pip-licenses --order=license --with-urls --ignore-packages pip-licenses prettytable wcwidth --output-file licenses-python.txt",
+  "npx --yes license-checker@25.0.1 --start lti_frontend --csv --out licenses-ts.csv",
+]

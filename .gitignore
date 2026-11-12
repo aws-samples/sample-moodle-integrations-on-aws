@@ -35,6 +35,7 @@ moodle/plugin/blocks/aitranslator.zip
 layers/*/python
 licenses-python.txt
 licenses-ts.csv
+audit-reports/
 synth_output.txt
 log_check.txt
 mise.local.toml

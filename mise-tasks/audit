@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Run all security audit checks and save the output to audit-reports/"
+# Runs every check even when one fails, so a single run gives the full picture.
+set -uo pipefail
+checks=(audit:secrets audit:deps:python audit:deps:npm audit:sast:python audit:cdk-nag audit:shell audit:licenses)
+mkdir -p audit-reports
+failed=()
+for check in "${checks[@]}"; do
+  report="audit-reports/${check//:/-}.txt"
+  echo "=== $check (saving to $report)"
+  if mise run "$check" 2>&1 | tee "$report"; then
+    echo "PASS $check"
+  else
+    echo "FAIL $check"
+    failed+=("$check")
+  fi
+done
+echo
+echo "${#checks[@]} checks run, ${#failed[@]} failed. Reports are in audit-reports/."
+# Guard the loop: macOS bash 3.2 treats an empty array as unbound under set -u
+if [ "${#failed[@]}" -gt 0 ]; then
+  for check in "${failed[@]}"; do echo "  FAIL $check"; done
+  exit 1
+fi

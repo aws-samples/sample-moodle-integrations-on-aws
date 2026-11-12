@@ -274,6 +274,18 @@ Managed through `mise.toml`, with longer scripts as [file tasks](https://mise.jd
 - `mise run events:package` - Package AWS Events plugin only
 - `mise run aitranslator:package` - Package AI Translator plugin only
 
+### Security Checks
+- `mise run audit` - Run all the checks below and save each one's output to `audit-reports/`. Every check runs even if an earlier one fails.
+- `mise run audit:secrets` - Scan git-tracked files for hardcoded secrets (detect-secrets)
+- `mise run audit:deps:python` - Check Python dependencies for known vulnerabilities (pip-audit)
+- `mise run audit:deps:npm` - Check frontend dependencies for high or critical vulnerabilities (npm audit)
+- `mise run audit:sast:python` - Scan Python code for security issues (Bandit)
+- `mise run audit:cdk-nag` - Synthesize the CDK app and fail on cdk-nag errors
+- `mise run audit:shell` - Lint the shell task scripts (ShellCheck)
+- `mise run audit:licenses` - Write third-party license lists to `licenses-python.txt` and `licenses-ts.csv` for review
+
+`mise run init` installs the Python scanners from `requirements-dev.txt`, and `mise install` installs ShellCheck. All of them run locally and don't upload code or results anywhere.
+
 ## Production Deployment Considerations
 
 ### Custom Domain for CloudFront Distribution

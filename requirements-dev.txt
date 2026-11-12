@@ -1,5 +1,6 @@
-semgrep~=1.113
-bandit~=1.8
-pip-licenses~=5.0
+bandit~=1.9
+detect-secrets~=1.5
+pip-audit~=2.10
+pip-licenses~=5.5
 boto3~=1.38
 PyJWT~=2.12
