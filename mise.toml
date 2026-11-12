@@ -84,11 +84,3 @@ run_windows = [
 [tasks.package]
 description = "Package all Moodle plugins"
 depends = ["events:package", "aitranslator:package"]
-
-[tasks.lint]
-description = "Run all linting tools"
-run = [
-    "bandit -c bandit.yaml -r .",
-    "semgrep ci"
-]
-
