@@ -41,10 +41,10 @@ class TranslateRequest(BaseModel):
     prompt: str
 
 
-@logger.inject_lambda_context(
-    correlation_id_path=correlation_paths.API_GATEWAY_HTTP, log_event=True
-)
-@tracer.capture_lambda_handler
+# log_event and response capture stay off: the request body holds the user's
+# text and the response holds the translation of it.
+@logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_HTTP)
+@tracer.capture_lambda_handler(capture_response=False)
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     """
     AWS Lambda handler function that processes API Gateway events.
@@ -73,6 +73,8 @@ def call_bedrock(translate_request: TranslateRequest):
     Raises:
         Exception: For various error conditions (validation error, model not ready, throttling, etc.)
     """
+    logger.info("Translation requested", extra={"prompt_length": len(translate_request.prompt)})
+
     conversation = [
         {
             "role": "user",
@@ -107,7 +109,7 @@ def call_bedrock(translate_request: TranslateRequest):
     # Extract the response text.
     try:
         response_text = response["output"]["message"]["content"][0]["text"]
-        logger.debug(f"Response from Bedrock: {response_text}")
+        logger.debug("Received translation from Bedrock", extra={"output_length": len(response_text)})
         return {"output": response_text}
     except (KeyError, IndexError, TypeError) as e:
         logger.warning(f"Unexpected response structure from Bedrock: {str(e)}")

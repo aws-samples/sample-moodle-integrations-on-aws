@@ -1,0 +1,373 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Least privilege CloudFormation execution policies for deploying the moodle-plugins CDK stack.
+
+# The permissions are split across two managed policies to stay under IAM's
+# 6,144 character limit per policy. Pass both ARNs to cdk bootstrap with
+# --cloudformation-execution-policies (see `mise run policy:deploy`).
+
+Parameters:
+  StackName:
+    Type: String
+    Default: moodle-plugins
+    Description: Name of the CDK stack these policies deploy. Must match STACK_NAME in mise.toml.
+    # Lowercase because the stack name also prefixes S3 bucket names
+    AllowedPattern: "^[a-z][a-z0-9-]*$"
+  Qualifier:
+    Type: String
+    Default: moodleplug
+    Description: CDK bootstrap qualifier. Must match QUALIFIER in mise.toml and "@aws-cdk/core:bootstrapQualifier" in cdk.json.
+    AllowedPattern: "^[a-z0-9]{1,10}$"
+
+Resources:
+  CorePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: !Sub "${StackName} CDK deployment: SSM, IAM, Lambda and CloudWatch Logs permissions"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadCdkBootstrapVersionAndStackParameters
+            Effect: Allow
+            Action:
+              - "ssm:GetParameters"
+            Resource:
+              - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/${Qualifier}/version"
+              - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lti/*"
+          - Sid: ManageLtiParameters
+            Effect: Allow
+            Action:
+              - "ssm:PutParameter"
+              - "ssm:DeleteParameter"
+              - "ssm:AddTagsToResource"
+              - "ssm:RemoveTagsFromResource"
+              - "ssm:ListTagsForResource"
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lti/*"
+          - Sid: ReadCdkAssetsForLambdaCode
+            Effect: Allow
+            Action:
+              - "s3:GetObject"
+              - "s3:GetObjectVersion"
+            Resource: !Sub "arn:aws:s3:::cdk-${Qualifier}-assets-${AWS::AccountId}-${AWS::Region}/*"
+          - Sid: ManageStackRoles
+            Effect: Allow
+            Action:
+              - "iam:CreateRole"
+              - "iam:DeleteRole"
+              - "iam:GetRole"
+              - "iam:UpdateRole"
+              - "iam:UpdateRoleDescription"
+              - "iam:UpdateAssumeRolePolicy"
+              - "iam:TagRole"
+              - "iam:UntagRole"
+              - "iam:PutRolePolicy"
+              - "iam:GetRolePolicy"
+              - "iam:DeleteRolePolicy"
+              - "iam:ListRolePolicies"
+              - "iam:ListAttachedRolePolicies"
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${StackName}-*"
+          - Sid: AttachLambdaBasicExecutionToStackRoles
+            Effect: Allow
+            Action:
+              - "iam:AttachRolePolicy"
+              - "iam:DetachRolePolicy"
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${StackName}-*"
+            Condition:
+              ArnEquals:
+                iam:PolicyARN: "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          - Sid: AttachMoodleEventsPolicyToMoodleRole
+            Effect: Allow
+            Action:
+              - "iam:AttachRolePolicy"
+              - "iam:DetachRolePolicy"
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/*"
+            Condition:
+              ArnEquals:
+                iam:PolicyARN: !Sub "arn:aws:iam::${AWS::AccountId}:policy/MoodleEventsIAMPolicy"
+          - Sid: ManageMoodleEventsPolicy
+            Effect: Allow
+            Action:
+              - "iam:CreatePolicy"
+              - "iam:DeletePolicy"
+              - "iam:GetPolicy"
+              - "iam:GetPolicyVersion"
+              - "iam:ListPolicyVersions"
+              - "iam:CreatePolicyVersion"
+              - "iam:DeletePolicyVersion"
+              - "iam:ListEntitiesForPolicy"
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:policy/MoodleEventsIAMPolicy"
+          - Sid: PassStackRolesToLambdaAndBedrock
+            Effect: Allow
+            Action: "iam:PassRole"
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${StackName}-*"
+            Condition:
+              StringEquals:
+                iam:PassedToService:
+                  - lambda.amazonaws.com
+                  - bedrock.amazonaws.com
+          - Sid: ManageStackFunctions
+            Effect: Allow
+            Action:
+              - "lambda:CreateFunction"
+              - "lambda:DeleteFunction"
+              - "lambda:GetFunction"
+              - "lambda:UpdateFunctionCode"
+              - "lambda:UpdateFunctionConfiguration"
+              - "lambda:InvokeFunction"
+              - "lambda:AddPermission"
+              - "lambda:RemovePermission"
+              - "lambda:GetPolicy"
+              - "lambda:PutFunctionConcurrency"
+              - "lambda:DeleteFunctionConcurrency"
+              - "lambda:GetFunctionCodeSigningConfig"
+              - "lambda:GetFunctionRecursionConfig"
+              - "lambda:GetRuntimeManagementConfig"
+              - "lambda:TagResource"
+              - "lambda:UntagResource"
+              - "lambda:ListTags"
+            Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StackName}-*"
+          - Sid: ManageLayersInAccountAndRegion
+            Effect: Allow
+            Action:
+              - "lambda:PublishLayerVersion"
+              - "lambda:GetLayerVersion"
+              - "lambda:DeleteLayerVersion"
+            Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:*"
+          - Sid: UseAwsManagedPowertoolsLayer
+            Effect: Allow
+            Action: "lambda:GetLayerVersion"
+            Resource: !Sub "arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-*"
+          - Sid: ManageStackLogGroups
+            Effect: Allow
+            Action:
+              - "logs:CreateLogGroup"
+              - "logs:DeleteLogGroup"
+              - "logs:PutRetentionPolicy"
+              - "logs:DeleteRetentionPolicy"
+              - "logs:DescribeIndexPolicies"
+              - "logs:TagResource"
+              - "logs:UntagResource"
+              - "logs:ListTagsForResource"
+            Resource:
+              - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${StackName}-*"
+              - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock/${StackName}-*"
+          - Sid: ManageKnowledgeBaseLogDelivery
+            Effect: Allow
+            Action:
+              - "logs:PutDeliverySource"
+              - "logs:GetDeliverySource"
+              - "logs:DeleteDeliverySource"
+              - "logs:PutDeliveryDestination"
+              - "logs:GetDeliveryDestination"
+              - "logs:DeleteDeliveryDestination"
+              - "logs:CreateDelivery"
+              - "logs:GetDelivery"
+              - "logs:DeleteDelivery"
+              - "logs:UpdateDeliveryConfiguration"
+              - "logs:TagResource"
+              - "logs:UntagResource"
+              - "logs:ListTagsForResource"
+            Resource:
+              - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:delivery-source:${StackName}-*"
+              - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:delivery-destination:${StackName}-*"
+              - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:delivery:*"
+          - Sid: ActionsWithoutResourceLevelSupport
+            Effect: Allow
+            Action:
+              - "iam:GetAccountSummary"
+              - "lambda:GetAccountSettings"
+              - "logs:DescribeLogGroups"
+              - "logs:DescribeDeliveries"
+              - "logs:DescribeResourcePolicies"
+              - "logs:PutResourcePolicy"
+              - "logs:DeleteResourcePolicy"
+              - "secretsmanager:GetRandomPassword"
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - !Sub "${AWS::Region}"
+                  - us-east-1
+
+  ServicesPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: !Sub "${StackName} CDK deployment: S3, S3 Vectors, Bedrock, DynamoDB, SQS, Secrets Manager, EventBridge, API Gateway and CloudFront permissions"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ManageStackBuckets
+            Effect: Allow
+            Action:
+              - "s3:CreateBucket"
+              - "s3:DeleteBucket"
+              - "s3:PutBucketPolicy"
+              - "s3:GetBucketPolicy"
+              - "s3:DeleteBucketPolicy"
+              - "s3:PutBucketPublicAccessBlock"
+              - "s3:GetBucketPublicAccessBlock"
+              - "s3:PutBucketOwnershipControls"
+              - "s3:GetBucketOwnershipControls"
+              - "s3:PutBucketAcl"
+              - "s3:GetBucketAcl"
+              - "s3:PutEncryptionConfiguration"
+              - "s3:GetEncryptionConfiguration"
+              - "s3:PutLifecycleConfiguration"
+              - "s3:GetLifecycleConfiguration"
+              - "s3:PutBucketLogging"
+              - "s3:GetBucketLogging"
+              - "s3:PutBucketTagging"
+              - "s3:GetBucketTagging"
+              - "s3:TagResource"
+              - "s3:UntagResource"
+              - "s3:ListTagsForResource"
+              - "s3:GetAccelerateConfiguration"
+              - "s3:GetAnalyticsConfiguration"
+              - "s3:GetBucketAbac"
+              - "s3:GetBucketCORS"
+              - "s3:GetBucketNotification"
+              - "s3:GetBucketObjectLockConfiguration"
+              - "s3:GetBucketVersioning"
+              - "s3:GetBucketWebsite"
+              - "s3:GetIntelligentTieringConfiguration"
+              - "s3:GetInventoryConfiguration"
+              - "s3:GetMetricsConfiguration"
+              - "s3:GetReplicationConfiguration"
+              - "s3:GetBucketMetadataTableConfiguration"
+            Resource: !Sub "arn:aws:s3:::${StackName}-*"
+          - Sid: ManageStackVectorStore
+            Effect: Allow
+            Action:
+              - "s3vectors:CreateVectorBucket"
+              - "s3vectors:GetVectorBucket"
+              - "s3vectors:DeleteVectorBucket"
+              - "s3vectors:CreateIndex"
+              - "s3vectors:GetIndex"
+              - "s3vectors:DeleteIndex"
+              - "s3vectors:TagResource"
+              - "s3vectors:UntagResource"
+              - "s3vectors:ListTagsForResource"
+            Resource: !Sub "arn:aws:s3vectors:${AWS::Region}:${AWS::AccountId}:bucket/${StackName}-*"
+          - Sid: ManageKnowledgeBasesInAccountAndRegion
+            Effect: Allow
+            Action:
+              - "bedrock:CreateKnowledgeBase"
+              - "bedrock:GetKnowledgeBase"
+              - "bedrock:UpdateKnowledgeBase"
+              - "bedrock:DeleteKnowledgeBase"
+              - "bedrock:CreateDataSource"
+              - "bedrock:GetDataSource"
+              - "bedrock:UpdateDataSource"
+              - "bedrock:DeleteDataSource"
+              - "bedrock:ListDataSources"
+              - "bedrock:AllowVendedLogDeliveryForResource"
+              - "bedrock:TagResource"
+              - "bedrock:UntagResource"
+              - "bedrock:ListTagsForResource"
+            Resource: !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*"
+          - Sid: ManageStackTable
+            Effect: Allow
+            Action:
+              - "dynamodb:CreateTable"
+              - "dynamodb:DeleteTable"
+              - "dynamodb:DescribeTable"
+              - "dynamodb:UpdateTable"
+              - "dynamodb:DescribeContinuousBackups"
+              - "dynamodb:UpdateContinuousBackups"
+              - "dynamodb:DescribeTimeToLive"
+              - "dynamodb:UpdateTimeToLive"
+              - "dynamodb:DescribeContributorInsights"
+              - "dynamodb:DescribeKinesisStreamingDestination"
+              - "dynamodb:GetResourcePolicy"
+              - "dynamodb:TagResource"
+              - "dynamodb:UntagResource"
+              - "dynamodb:ListTagsOfResource"
+            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StackName}-*"
+          - Sid: ManageStackQueue
+            Effect: Allow
+            Action:
+              - "sqs:CreateQueue"
+              - "sqs:DeleteQueue"
+              - "sqs:GetQueueAttributes"
+              - "sqs:SetQueueAttributes"
+              - "sqs:TagQueue"
+              - "sqs:UntagQueue"
+              - "sqs:ListQueueTags"
+            Resource: !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${StackName}-*"
+          - Sid: ManageStackSecrets
+            Effect: Allow
+            Action:
+              - "secretsmanager:CreateSecret"
+              - "secretsmanager:DeleteSecret"
+              - "secretsmanager:DescribeSecret"
+              - "secretsmanager:UpdateSecret"
+              - "secretsmanager:TagResource"
+              - "secretsmanager:UntagResource"
+            Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${StackName}/*"
+          - Sid: ManageMoodleEventBusAndRules
+            Effect: Allow
+            Action:
+              - "events:CreateEventBus"
+              - "events:DeleteEventBus"
+              - "events:DescribeEventBus"
+              - "events:UpdateEventBus"
+              - "events:PutRule"
+              - "events:DeleteRule"
+              - "events:DescribeRule"
+              - "events:PutTargets"
+              - "events:RemoveTargets"
+              - "events:ListTargetsByRule"
+              - "events:TagResource"
+              - "events:UntagResource"
+              - "events:ListTagsForResource"
+            Resource:
+              - !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:event-bus/moodle-events"
+              - !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/moodle-events/*"
+          - Sid: ManageRestApisInRegion
+            Effect: Allow
+            Action:
+              - "apigateway:GET"
+              - "apigateway:POST"
+              - "apigateway:PUT"
+              - "apigateway:PATCH"
+              - "apigateway:DELETE"
+            Resource:
+              - !Sub "arn:aws:apigateway:${AWS::Region}::/restapis"
+              - !Sub "arn:aws:apigateway:${AWS::Region}::/restapis/*"
+              - !Sub "arn:aws:apigateway:${AWS::Region}::/tags/*"
+          - Sid: ManageCloudFrontInAccount
+            Effect: Allow
+            Action:
+              - "cloudfront:CreateDistribution"
+              - "cloudfront:GetDistribution"
+              - "cloudfront:GetDistributionConfig"
+              - "cloudfront:UpdateDistribution"
+              - "cloudfront:DeleteDistribution"
+              - "cloudfront:CreateCachePolicy"
+              - "cloudfront:GetCachePolicy"
+              - "cloudfront:UpdateCachePolicy"
+              - "cloudfront:DeleteCachePolicy"
+              - "cloudfront:CreateOriginRequestPolicy"
+              - "cloudfront:GetOriginRequestPolicy"
+              - "cloudfront:UpdateOriginRequestPolicy"
+              - "cloudfront:DeleteOriginRequestPolicy"
+              - "cloudfront:CreateOriginAccessControl"
+              - "cloudfront:GetOriginAccessControl"
+              - "cloudfront:UpdateOriginAccessControl"
+              - "cloudfront:DeleteOriginAccessControl"
+              - "cloudfront:TagResource"
+              - "cloudfront:UntagResource"
+              - "cloudfront:ListTagsForResource"
+            Resource:
+              - !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
+              - !Sub "arn:aws:cloudfront::${AWS::AccountId}:cache-policy/*"
+              - !Sub "arn:aws:cloudfront::${AWS::AccountId}:origin-request-policy/*"
+              - !Sub "arn:aws:cloudfront::${AWS::AccountId}:origin-access-control/*"
+
+Outputs:
+  CorePolicyArn:
+    Value: !Ref CorePolicy
+  ServicesPolicyArn:
+    Value: !Ref ServicesPolicy
+  PolicyArns:
+    Description: Comma-separated ARNs for POLICY_ARN and cdk bootstrap --cloudformation-execution-policies
+    Value: !Join [",", [!Ref CorePolicy, !Ref ServicesPolicy]]
