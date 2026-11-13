@@ -1,4 +1,5 @@
 bandit~=1.9
+cfn-lint~=1.60
 detect-secrets~=1.5
 pip-audit~=2.10
 pip-licenses~=5.5

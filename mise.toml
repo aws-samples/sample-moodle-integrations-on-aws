@@ -42,6 +42,33 @@ run_windows = [
   "del synth_output.txt"
 ]
 
+# Least privilege CloudFormation execution policies, deployed as their own stack
+# with your current credentials and attached to the CDK execution role by cdk:bootstrap
+
+[tasks."policy:validate"]
+description = "Lint the deployment policy template and reject service-wide wildcard actions"
+run = [
+  "cfn-lint deployment-policies/deployment-policies.yaml",
+  "if grep -nE '\"[a-z0-9-]+:[*]\"' deployment-policies/deployment-policies.yaml; then echo 'Service-wide wildcard actions are not allowed'; exit 1; fi",
+]
+
+[tasks."policy:deploy"]
+description = "Deploy the deployment policy stack and save POLICY_ARN to mise.local.toml"
+depends = "policy:validate"
+run = [
+  "aws cloudformation deploy --template-file deployment-policies/deployment-policies.yaml --stack-name \"$STACK_NAME-deployment-policies\" --parameter-overrides StackName=\"$STACK_NAME\" Qualifier=\"$QUALIFIER\" --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset",
+  "mise set --file mise.local.toml POLICY_ARN=\"$(aws cloudformation describe-stacks --stack-name \"$STACK_NAME-deployment-policies\" --query \"Stacks[0].Outputs[?OutputKey=='PolicyArns'].OutputValue\" --output text)\"",
+  "echo 'Saved POLICY_ARN to mise.local.toml. Run mise run cdk:bootstrap if the ARNs changed.'",
+]
+
+[tasks."policy:destroy"]
+description = "Delete the deployment policy stack (destroy the CDK stack and bootstrap stack first)"
+run = [
+  "aws cloudformation delete-stack --stack-name \"$STACK_NAME-deployment-policies\"",
+  "aws cloudformation wait stack-delete-complete --stack-name \"$STACK_NAME-deployment-policies\"",
+  "mise unset --file mise.local.toml POLICY_ARN",
+]
+
 [tasks."cdk:deploy"]
 description = "Deploy CDK stack to AWS"
 depends = "site:build"
@@ -116,7 +143,7 @@ run = "cdk synth --quiet"
 
 [tasks."audit:shell"]
 description = "Lint the shell task scripts"
-run = "shellcheck mise-tasks/audit mise-tasks/clean mise-tasks/cdk/bootstrap mise-tasks/policy/create mise-tasks/policy/render mise-tasks/policy/validate"
+run = "shellcheck mise-tasks/audit mise-tasks/clean mise-tasks/cdk/bootstrap"
 
 [tasks."audit:licenses"]
 description = "List third-party licenses for review"

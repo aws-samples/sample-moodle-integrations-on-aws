@@ -7,6 +7,6 @@ if [ -n "${POLICY_ARN:-}" ]; then
   echo "Using least privilege policy: $POLICY_ARN"
   cdk bootstrap --qualifier "$QUALIFIER" --cloudformation-execution-policies "$POLICY_ARN" --toolkit-stack-name "CDKToolkit-${STACK_NAME}"
 else
-  echo "Using default AdministratorAccess policy (run 'mise run policy:create' for least privilege)"
+  echo "Using default AdministratorAccess policy (run 'mise run policy:deploy' for least privilege)"
   cdk bootstrap --qualifier "$QUALIFIER" --toolkit-stack-name "CDKToolkit-${STACK_NAME}"
 fi

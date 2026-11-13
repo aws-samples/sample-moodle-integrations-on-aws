@@ -74,7 +74,7 @@ The solution includes:
 
 1. **AWS Account**: You need a role (or less preferably IAM user) with sufficient permissions to deploy CDK stacks in the chosen region. 
 
-   **Deployment Permissions**: The permissions CloudFormation needs to deploy this stack are defined in the policy templates in [`deployment-policies/`](./deployment-policies/). They were derived from the CloudTrail record of a full deploy and destroy, and grant only the specific actions used, scoped to this account, region and the stack's own resource names. See [Configure CDK Deployment Permissions](#3-configure-cdk-deployment-permissions-optional) for how to create them and use them with `cdk bootstrap`.
+   **Deployment Permissions**: The permissions CloudFormation needs to deploy this stack are defined in the CloudFormation template in [`deployment-policies/`](./deployment-policies/). This grants only the specific actions used, scoped to this account, region and the stack's own resource names. See [Configure CDK Deployment Permissions](#3-configure-cdk-deployment-permissions-optional) for how to create them and use them with `cdk bootstrap`.
 
 ## Installation
 
@@ -208,22 +208,19 @@ For enhanced security, you can attach a least privilege policy to the execution 
 
 Do nothing. With no `POLICY_ARN` set, `mise run cdk:bootstrap` attaches `AdministratorAccess` to the CloudFormation execution role, so stack changes run with full administrator permissions regardless of what your own credentials can do.
 
-#### Least privilege approach (recommended for production):
+#### Least privilege approach (recommended):
 
-The least privilege permissions are kept as templates in [`deployment-policies/`](deployment-policies/), split into two managed policies (`core` and `services`) to stay under the IAM limit of 6,144 characters per policy. The templates use placeholders for the account ID, region, stack name and bootstrap qualifier, which are filled in when the policies are created. The policies must exist in your account before you bootstrap, because bootstrap attaches them to the CloudFormation execution role.
+The least privilege permissions are defined in the CloudFormation template [`deployment-policies/deployment-policies.yaml`](deployment-policies/deployment-policies.yaml). It creates two managed policies (`CorePolicy` and `ServicesPolicy`), split to stay under the IAM limit of 6,144 characters per policy. The account and region come from the deployment, and the stack name and bootstrap qualifier are template parameters. The policies are deployed as their own stack, `<STACK_NAME>-deployment-policies`, using your current credentials. They must exist before you bootstrap, because bootstrap attaches them to the CloudFormation execution role.
 
-1. **Create the policies:**
+1. **Deploy the policies:**
    ```bash
-   mise run policy:create
+   mise run policy:deploy
    ```
-   This renders the templates into `cdk.out/deployment-policies/`, validates them, then creates IAM policies named `<STACK_NAME>-cdk-deployment-core` and `<STACK_NAME>-cdk-deployment-services`. Their ARNs are saved as a comma-separated `POLICY_ARN` in `mise.local.toml`, which is gitignored. If the policies already exist, for instance after you change a template, the task adds a new default version and removes the oldest version when IAM's limit of 5 is reached.
+   This validates the template, deploys the policy stack, and saves the two policy ARNs as a comma-separated `POLICY_ARN` in `mise.local.toml`, which is gitignored. CloudFormation names the policies, for example `moodle-plugins-deployment-policies-CorePolicy-<random>`. If you change the template, run the task again. The policies are updated in place and keep their ARNs.
 
-   Validation (`mise run policy:validate`) fails if a rendered policy is over the size limit, contains a service-wide wildcard action such as `s3:*`, or has errors or security warnings from [IAM Access Analyzer policy validation](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-policy-validation.html).
+   Validation (`mise run policy:validate`) runs [cfn-lint](https://github.com/aws-cloudformation/cfn-lint) and fails on any service-wide wildcard action such as `s3:*`. It runs locally and doesn't need AWS credentials. A policy over the size limit fails at deploy time and the stack rolls back.
 
-   The task uses your current AWS credentials, which need `sts:GetCallerIdentity`, `access-analyzer:ValidatePolicy`, `iam:GetPolicy`, `iam:CreatePolicy`, `iam:CreatePolicyVersion`, `iam:ListPolicyVersions` and `iam:DeletePolicyVersion`. It runs on macOS and Linux. On Windows, replace the `${...}` placeholders in each template with your values, create each policy with `aws iam create-policy`, and set the ARNs by hand:
-   ```bash
-   mise set --file mise.local.toml POLICY_ARN="arn:aws:iam::YOUR-ACCOUNT-ID:policy/moodle-plugins-cdk-deployment-core,arn:aws:iam::YOUR-ACCOUNT-ID:policy/moodle-plugins-cdk-deployment-services"
-   ```
+   Your credentials need permission to deploy a CloudFormation stack that creates IAM managed policies. 
 
 2. **Bootstrap with them:**
    `mise run cdk:bootstrap` passes `POLICY_ARN` to `--cloudformation-execution-policies`. Running it again on an existing bootstrap stack replaces the attached policies.
@@ -234,7 +231,7 @@ The least privilege permissions are kept as templates in [`deployment-policies/`
 - `iam:PassRole` is limited to the stack's roles and to the Lambda and Bedrock services. Managed policy attachments are limited to `AWSLambdaBasicExecutionRole` on the stack's roles and to `MoodleEventsIAMPolicy` on the Moodle role you configure in `moodle_role_name`.
 - A few read actions and the CloudWatch Logs resource policy actions don't support resource-level permissions, so they use `Resource: "*"`, restricted to your deployment region and `us-east-1`.
 
-If you add resources to the stack, add the matching permissions to the templates. A missing permission shows up as an `AccessDenied` error from the execution role during `cdk deploy`.
+If you add resources to the stack, add the matching permissions to the template and run `mise run policy:deploy` again. A missing permission shows up as an `AccessDenied` error from the execution role during `cdk deploy`.
 
 The bootstrap qualifier is set to `moodleplug` (`QUALIFIER` in `mise.toml` and `@aws-cdk/core:bootstrapQualifier` in `cdk.json`, which must match). This gives the sample its own bootstrap stack and execution role, so its least privilege policies don't affect other CDK apps in the same account and region.
 
@@ -260,8 +257,9 @@ Managed through `mise.toml`, with longer scripts as [file tasks](https://mise.jd
 - `mise run clean` - Remove build artifacts
 
 ### CDK Operations
-- `mise run policy:validate` - Render and validate the least privilege deployment policies
-- `mise run policy:create` - Create or update the least privilege deployment policies and save `POLICY_ARN` to `mise.local.toml`
+- `mise run policy:validate` - Lint and validate the least privilege deployment policy template
+- `mise run policy:deploy` - Deploy the least privilege deployment policy stack and save `POLICY_ARN` to `mise.local.toml`
+- `mise run policy:destroy` - Delete the deployment policy stack
 - `mise run cdk:bootstrap` - Bootstrap CDK toolkit (uses `POLICY_ARN` if set)
 - `mise run cdk:synth` - Synthesize and check for security issues
 - `mise run cdk:deploy` - Deploy stack to AWS
@@ -560,7 +558,7 @@ When a user interacts with the LTI plugin in the LMS:
 │   ├── blocks/             # AI Translator block
 │   └── local/              # AWS Events local plugin
 ├── layers/                 # Lambda layers
-├── deployment-policies/    # Least privilege CloudFormation execution policy templates
+├── deployment-policies/    # CloudFormation template for the least privilege execution policies
 ├── app.py                  # CDK app entry point
 ├── cdk.json                # CDK configuration
 ├── mise-tasks/             # Longer mise task scripts (Windows variants as .cmd)
@@ -579,5 +577,15 @@ This command will:
 - Delete the CloudFormation stack and all associated resources
 - Remove Lambda functions, API Gateway, EventBridge bus and S3 Vectors bucket
 - Clean up CloudWatch log groups
+
+If you deployed the least privilege policies and no longer need the bootstrap stack, remove them in this order. IAM won't delete a policy that is still attached to the CloudFormation execution role.
+
+```bash
+aws cloudformation delete-stack --stack-name CDKToolkit-moodle-plugins
+aws cloudformation wait stack-delete-complete --stack-name CDKToolkit-moodle-plugins
+mise run policy:destroy
+```
+
+The bootstrap stack keeps its staging bucket (`cdk-moodleplug-assets-<account>-<region>`) when it's deleted. Empty and delete the bucket separately if you don't need it.
 
 > **Note**: Some resources may incur costs until fully deleted. Verify deletion in the AWS Console.
