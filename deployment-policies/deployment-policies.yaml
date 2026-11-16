@@ -369,5 +369,5 @@ Outputs:
   ServicesPolicyArn:
     Value: !Ref ServicesPolicy
   PolicyArns:
-    Description: Comma-separated ARNs for POLICY_ARN and cdk bootstrap --cloudformation-execution-policies
+    Description: Comma-separated ARNs for cdk bootstrap --cloudformation-execution-policies
     Value: !Join [",", [!Ref CorePolicy, !Ref ServicesPolicy]]

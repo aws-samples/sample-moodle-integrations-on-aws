@@ -43,7 +43,8 @@ run_windows = [
 ]
 
 # Least privilege CloudFormation execution policies, deployed as their own stack
-# with your current credentials and attached to the CDK execution role by cdk:bootstrap
+# with your current credentials. cdk:bootstrap runs policy:deploy and attaches
+# the policies to the CDK execution role.
 
 [tasks."policy:validate"]
 description = "Lint the deployment policy template and reject service-wide wildcard actions"
@@ -53,20 +54,15 @@ run = [
 ]
 
 [tasks."policy:deploy"]
-description = "Deploy the deployment policy stack and save POLICY_ARN to mise.local.toml"
+description = "Deploy or update the deployment policy stack"
 depends = "policy:validate"
-run = [
-  "aws cloudformation deploy --template-file deployment-policies/deployment-policies.yaml --stack-name \"$STACK_NAME-deployment-policies\" --parameter-overrides StackName=\"$STACK_NAME\" Qualifier=\"$QUALIFIER\" --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset",
-  "mise set --file mise.local.toml POLICY_ARN=\"$(aws cloudformation describe-stacks --stack-name \"$STACK_NAME-deployment-policies\" --query \"Stacks[0].Outputs[?OutputKey=='PolicyArns'].OutputValue\" --output text)\"",
-  "echo 'Saved POLICY_ARN to mise.local.toml. Run mise run cdk:bootstrap if the ARNs changed.'",
-]
+run = "aws cloudformation deploy --template-file deployment-policies/deployment-policies.yaml --stack-name \"$STACK_NAME-deployment-policies\" --parameter-overrides StackName=\"$STACK_NAME\" Qualifier=\"$QUALIFIER\" --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset"
 
 [tasks."policy:destroy"]
 description = "Delete the deployment policy stack (destroy the CDK stack and bootstrap stack first)"
 run = [
   "aws cloudformation delete-stack --stack-name \"$STACK_NAME-deployment-policies\"",
   "aws cloudformation wait stack-delete-complete --stack-name \"$STACK_NAME-deployment-policies\"",
-  "mise unset --file mise.local.toml POLICY_ARN",
 ]
 
 [tasks."cdk:deploy"]
