@@ -117,7 +117,9 @@ depends = ["events:package", "aitranslator:package"]
 
 [tasks."audit:secrets"]
 description = "Scan git-tracked files for hardcoded secrets"
-run = "detect-secrets scan | python -c \"import json,sys; r=json.load(sys.stdin)['results']; print(json.dumps(r, indent=2) if r else 'No secrets found'); sys.exit(1 if r else 0)\""
+# --exclude-lines skips the Secrets Manager IAM action names in the deployment
+# policy template, which the keyword detector mistakes for secrets
+run = "detect-secrets scan --exclude-lines '\"secretsmanager:[A-Za-z]+\"' | python -c \"import json,sys; r=json.load(sys.stdin)['results']; print(json.dumps(r, indent=2) if r else 'No secrets found'); sys.exit(1 if r else 0)\""
 
 [tasks."audit:deps:python"]
 description = "Check Python dependencies for known vulnerabilities"
