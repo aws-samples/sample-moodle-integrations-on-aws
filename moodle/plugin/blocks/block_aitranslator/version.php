@@ -11,8 +11,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2024010101;
+$plugin->version   = 2026111600;
 $plugin->requires  = 2023100900;
 $plugin->component = 'block_aitranslator';
 $plugin->maturity  = MATURITY_BETA;
-$plugin->release   = '0.9.0-beta';
+$plugin->release   = '0.9.1-beta';

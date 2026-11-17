@@ -307,6 +307,12 @@ If the sample is being adapted for production deployments, it's strongly recomme
 
 > **⚠️ Production Security**: Default CloudFront domains use shared SSL certificates and may not meet enterprise security requirements. Custom domains with proper SSL/TLS policies are essential for production deployments.
 
+### Amazon Bedrock Guardrails for the AI Translator
+
+The AI Translator sends the text a Moodle user enters to the model and shows the model's reply. The Lambda function puts its instructions in a system prompt and wraps the user's text in tags, so text that looks like an instruction is translated rather than followed. This reduces prompt injection but doesn't rule it out, and the sample has no content filtering. The block labels each answer as AI-generated and possibly inaccurate.
+
+For production, consider adding [Amazon Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) to the `converse` call to filter harmful content, block denied topics and mask sensitive information in both the input and the output. This needs a guardrail resource in the stack and `bedrock:ApplyGuardrail` permission for the Lambda function.
+
 ## Plugins
 The deployment creates two plugin packages:
 - `moodle/plugin/local/awsevents.zip` - AWS Events plugin
@@ -505,6 +511,8 @@ Required for file indexing:
 **Verification:**
 
 After configuration, uploading a file to a Moodle course triggers a Lambda function that indexes it in the Bedrock Knowledge Base. Verify by checking the `moodle-plugins-MoodleDataSource` data source under the `moodle-plugins-MoodleFiles` Knowledge Base in the AWS Console.
+
+**Course content responsibility:** Files uploaded to a course are indexed automatically, without a separate approval step. You're responsible for having the rights to use that content this way, and for any personal data it contains, so check it meets your organisation's requirements before you enable the plugin on a course.
 
 ## Sample LTI Tool
 

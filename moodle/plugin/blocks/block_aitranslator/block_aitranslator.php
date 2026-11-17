@@ -37,6 +37,7 @@ class block_aitranslator extends block_base
             return $this->content;
         }
         $sesskey_escaped = json_encode($sesskey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        $ainotice_escaped = json_encode(get_string('ai_notice', 'block_aitranslator'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         
         $this->content->text = '
             <input type="text" id="aitranslator_question" placeholder="Ask AI..." style="width: 100%;">
@@ -46,6 +47,7 @@ class block_aitranslator extends block_base
 
             <script>
                 const sesskey = ' . $sesskey_escaped . ';
+                const aiNotice = ' . $ainotice_escaped . ';
                 document.getElementById("aitranslator_button").addEventListener("click", async function(event) {
                     const questionInput = document.getElementById("aitranslator_question");
                     const responseDiv = document.getElementById("aitranslator_response");
@@ -79,6 +81,13 @@ class block_aitranslator extends block_base
                         responseDiv.innerHTML = "";
                         responseDiv.appendChild(answerLabel);
                         responseDiv.appendChild(sanitizedText);
+                        // Tell the user the answer comes from a model and can be wrong
+                        const notice = document.createElement("div");
+                        notice.textContent = aiNotice;
+                        notice.style.marginTop = "5px";
+                        notice.style.fontSize = "0.85em";
+                        notice.style.fontStyle = "italic";
+                        responseDiv.appendChild(notice);
                     } catch (err) {
                         responseDiv.innerHTML = "<span style=\'color: red;\'>Error contacting AI.</span>";
                     }
