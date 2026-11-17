@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Bootstrap the CDK toolkit stack with least privilege execution policies"
+#MISE depends=["site:build"]
+set -euo pipefail
+toolkit_stack="CDKToolkit-${STACK_NAME}"
+
+if [ "${ALLOW_ADMIN_EXECUTION_ROLE:-}" = "true" ]; then
+  echo "WARNING: ALLOW_ADMIN_EXECUTION_ROLE=true. The CloudFormation execution role will have AdministratorAccess."
+  cdk bootstrap --qualifier "$QUALIFIER" --toolkit-stack-name "$toolkit_stack"
+else
+  # Deployed here rather than as a task dependency because mise reads its
+  # environment once at startup, so a value written by another task isn't visible.
+  mise run policy:deploy
+  policy_arns=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}-deployment-policies" --query "Stacks[0].Outputs[?OutputKey=='PolicyArns'].OutputValue" --output text)
+  if [ -z "$policy_arns" ] || [ "$policy_arns" = "None" ]; then
+    echo "Could not read the policy ARNs from the ${STACK_NAME}-deployment-policies stack. Not bootstrapping." >&2
+    exit 1
+  fi
+  echo "Using least privilege policies: $policy_arns"
+  cdk bootstrap --qualifier "$QUALIFIER" --cloudformation-execution-policies "$policy_arns" --toolkit-stack-name "$toolkit_stack"
+fi

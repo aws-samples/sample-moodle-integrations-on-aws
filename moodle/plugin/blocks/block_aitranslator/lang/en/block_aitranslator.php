@@ -14,3 +14,4 @@ $string['api_gateway_url'] = 'API Gateway URL';
 $string['api_gateway_url_desc'] = 'The URL of the AWS API Gateway endpoint for the AI Translator service';
 $string['aitranslator:addinstance'] = 'Add a new AI Translator block';
 $string['aitranslator:myaddinstance'] = 'Add a new AI Translator block to Dashboard';
+$string['ai_notice'] = 'AI-generated translation. It may be inaccurate.';

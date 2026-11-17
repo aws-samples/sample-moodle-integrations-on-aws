@@ -48,6 +48,8 @@ class MoodleEventHandlersConstruct(Construct):
         moodle_token_secret = secretsmanager.Secret(
             self,
             "MoodleTokenSecret",
+            # Stack-prefixed name so the deployment policy can scope Secrets Manager to moodle-plugins/*
+            secret_name=f"{stack.stack_name}/moodle/token",
             description="Moodle API access token",
             secret_string_value=SecretValue.unsafe_plain_text("Placeholder"),
             removal_policy=RemovalPolicy.DESTROY,

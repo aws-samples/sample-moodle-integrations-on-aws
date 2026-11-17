@@ -170,15 +170,6 @@ class LtiConstruct(Construct):
                 point_in_time_recovery_enabled=True
             ),
         )
-        NagSuppressions.add_resource_suppressions(
-            state_table,
-            [
-                {
-                    "id": "AwsSolutions-DDB3",
-                    "reason": "Point-in-time recovery enabled for state table",
-                }
-            ],
-        )
 
         lti_function_log_group = logs.LogGroup(
             self,
@@ -395,7 +386,8 @@ class LtiConstruct(Construct):
         user_resource = api_resource.add_resource("user")
         info_resource = user_resource.add_resource("info")
 
-        # GET /api/user/info endpoint (no authorizer - uses cookie)
+        # GET /api/user/info endpoint (no API Gateway authorizer - the Lambda
+        # verifies the session JWT from the Authorization header)
         info_method = info_resource.add_method(
             "GET", apigateway.LambdaIntegration(self.lti_function, proxy=True)
         )
@@ -404,17 +396,17 @@ class LtiConstruct(Construct):
             [
                 {
                     "id": "AwsSolutions-APIG4",
-                    "reason": "User info endpoint validates JWT from cookie internally",
+                    "reason": "The Lambda verifies the signed, single-use session JWT from the Authorization header and rejects requests without one",
                 },
                 {
                     "id": "AwsSolutions-COG4",
-                    "reason": "User info endpoint validates JWT from cookie internally",
+                    "reason": "The Lambda verifies the signed, single-use session JWT from the Authorization header and rejects requests without one",
                 },
             ],
         )
 
         # Update SSM parameter with API Gateway URL using Custom Resource
-        # Use API Gateway directly for launch to allow Set-Cookie header
+        # Moodle posts the launch straight to API Gateway rather than through CloudFront
         cr.AwsCustomResource(
             self,
             "UpdateRedirectUri",
@@ -460,7 +452,7 @@ class LtiConstruct(Construct):
             self,
             "ApiURLviaCloudFront",
             value=f"https://{self.distribution.distribution_domain_name}/api",
-            description="API URL via CloudFront (for cookie-based auth)",
+            description="API URL via CloudFront, used by the LTI frontend",
         )
 
         # Output the API Gateway URL
@@ -471,7 +463,7 @@ class LtiConstruct(Construct):
             description="API Gateway URL",
         )
 
-        # Output the Tool URL (use API Gateway for Set-Cookie support)
+        # Output the Tool URL (the API Gateway endpoint Moodle calls directly)
         CfnOutput(
             self,
             "ToolURL",

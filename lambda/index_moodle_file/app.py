@@ -27,7 +27,6 @@ Required environment variables:
 """
 
 import requests
-import json
 import os
 import tempfile
 import time
@@ -136,6 +135,23 @@ def get_moodle_token() -> str:
         raise ValueError("Failed to retrieve Moodle token") from e
 
 
+class MoodleRequestError(Exception):
+    """A Moodle web service call failed. The message never includes the request URL."""
+
+
+def describe_request_error(error: requests.RequestException) -> str:
+    """Summarise a requests error without its message.
+
+    Moodle web service calls carry the token in the query string, and requests
+    includes the full URL in exception messages, so str(error) would leak the
+    token into the logs. Only the exception type and HTTP status are returned.
+    """
+    status_code = getattr(error.response, "status_code", None)
+    if status_code is not None:
+        return f"{type(error).__name__} (HTTP {status_code})"
+    return type(error).__name__
+
+
 def get_course_info(course_id: int) -> List[Dict[str, Any]]:
     """Fetch course content information from Moodle API.
 
@@ -146,9 +162,7 @@ def get_course_info(course_id: int) -> List[Dict[str, Any]]:
         List[Dict[str, Any]]: List of course sections with modules and content
 
     Raises:
-        requests.Timeout: If request times out
-        requests.HTTPError: If HTTP error occurs
-        requests.RequestException: If network error occurs
+        MoodleRequestError: If the request times out, fails, or returns an HTTP error
         ValueError: If Moodle returns an API error or invalid JSON
     """
     try:
@@ -166,17 +180,21 @@ def get_course_info(course_id: int) -> List[Dict[str, Any]]:
 
         response.raise_for_status()
 
+    # Re-raise as MoodleRequestError "from None" so neither the message nor the
+    # chained original (both of which contain the token URL) reach the logs.
     except requests.Timeout as e:
-        logger.error(f"Timeout fetching course {course_id}: {str(e)}")
-        raise
+        logger.error(f"Timeout fetching course {course_id}: {describe_request_error(e)}")
+        raise MoodleRequestError(f"Timeout fetching course {course_id}") from None
     except requests.HTTPError as e:
-        logger.error(
-            f"HTTP error fetching course {course_id}: {e.response.status_code} - {str(e)}"
-        )
-        raise
+        logger.error(f"HTTP error fetching course {course_id}: {describe_request_error(e)}")
+        raise MoodleRequestError(
+            f"HTTP error fetching course {course_id}: {describe_request_error(e)}"
+        ) from None
     except requests.RequestException as e:
-        logger.error(f"Network error fetching course {course_id}: {str(e)}")
-        raise
+        logger.error(f"Network error fetching course {course_id}: {describe_request_error(e)}")
+        raise MoodleRequestError(
+            f"Network error fetching course {course_id}: {describe_request_error(e)}"
+        ) from None
 
     # Parse JSON response
     try:
@@ -239,7 +257,11 @@ def get_file_infos(module_info: Dict[str, Any]) -> List[FileInfo]:
                 )
                 file_infos.append(file_info)
             except KeyError as e:
-                logger.warning(f"Skipping file with missing field {str(e)}: {content}")
+                # Log only the keys present, not the course content values.
+                logger.warning(
+                    f"Skipping file with missing field {str(e)}",
+                    extra={"content_keys": sorted(content.keys())},
+                )
 
     return file_infos
 
@@ -345,7 +367,13 @@ def index_file(file_info: FileInfo, course_id: str, context_id: str) -> Dict[str
         documents=[{"content": content_config, "metadata": metadata}],
     )
 
-    logger.info(f"Successful ingestion with course_id={course_id}, contextid={context_id}: {json.dumps(response, default=str)}")
+    document_statuses = [
+        doc.get("status") for doc in response.get("documentDetails", [])
+    ]
+    logger.info(
+        f"Successful ingestion with course_id={course_id}, contextid={context_id}",
+        extra={"document_statuses": document_statuses},
+    )
     return response
 
 
@@ -383,7 +411,9 @@ def index_files(module_info: Dict[str, Any], course_id: str, context_id: str) ->
             index_file(file_info, course_id, context_id)
             logger.info("Successfully indexed: %s", file_info.file_url)
         except requests.RequestException as e:
-            logger.error(f"Error downloading file {file_info.file_url}: {str(e)}")
+            logger.error(
+                f"Error downloading file {file_info.file_url}: {describe_request_error(e)}"
+            )
         except IOError as e:
             logger.error(f"Error writing file {file_info.file_path}: {str(e)}")
         except bedrock_agent_client.exceptions.ClientError as e:
@@ -473,7 +503,15 @@ def delete_documents_by_context(context_id: str) -> None:
                 dataSourceId=DATA_SOURCE_ID,
                 documentIdentifiers=batch
             )
-            logger.info(f"Batch delete response: {json.dumps(delete_response, default=str)}")
+            logger.info(
+                "Batch delete submitted",
+                extra={
+                    "document_statuses": [
+                        doc.get("status")
+                        for doc in delete_response.get("documentDetails", [])
+                    ]
+                },
+            )
 
         logger.info(f"Successfully deleted all documents with contextid={context_id}")
 
@@ -491,7 +529,9 @@ def delete_documents_by_context(context_id: str) -> None:
 
 
 @tracer.capture_lambda_handler
-@logger.inject_lambda_context(log_event=True)
+# log_event stays off: Moodle events carry user IDs. The handler logs the
+# course, module and context IDs it needs instead.
+@logger.inject_lambda_context
 @event_source(data_class=EventBridgeEvent)  # pylint: disable:no-value-for-parameter
 def lambda_handler(
     event: EventBridgeEvent, context: LambdaContext
@@ -547,7 +587,8 @@ def lambda_handler(
                 if attempt == max_retries - 1:
                     break  # Don't sleep after last attempt
                 base_delay = min(2 ** attempt, 4)  # Cap at 4s to stay within Lambda timeout
-                jitter = random.uniform(0, base_delay * 0.5)
+                # Retry jitter only spreads out requests; it is not security-sensitive.
+                jitter = random.uniform(0, base_delay * 0.5)  # nosec B311
                 delay = base_delay + jitter
                 logger.info(f"Module {module_id} not found on attempt {attempt + 1}/{max_retries}, retrying in {delay:.1f}s")
                 time.sleep(delay)

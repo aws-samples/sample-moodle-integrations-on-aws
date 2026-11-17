@@ -60,9 +60,9 @@ The solution includes:
   mise activate pwsh | Out-String | Invoke-Expression
   ```
 - Node.js 22 (managed by mise)
-- Python 3.13 (managed by mise))
-- AWS CLI (managed by mise on Mac and Linux. For Windows see [the installation guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).  This should be configured with appropriate credentials for the deployment account.
-- AWS CDK (`npm install -g aws-cdk`)
+- Python 3.13 (managed by mise)
+- AWS CLI (managed by mise on Mac and Linux. For Windows see [the installation guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).) This should be configured with appropriate credentials for the deployment account.
+- AWS CDK CLI v2 (managed by mise)
 - [Finch](https://github.com/runfinch/finch) or Docker running for container builds
 
 **For Docker users**: Comment out the CDK_DOCKER line in `mise.toml`:
@@ -74,15 +74,7 @@ The solution includes:
 
 1. **AWS Account**: You need a role (or less preferably IAM user) with sufficient permissions to deploy CDK stacks in the chosen region. 
 
-   **Deployment Permissions**: The specific permissions required for deployment are documented in the [`deployment-least-privilege-policy.json`](./deployment-least-privilege-policy.json) file. This policy provides a reduced set of permissions focused specifically on the AWS services used by this stack, including:
-   
-   - CDK stack deployment and management
-   - AWS service provisioning (Lambda, API Gateway, EventBridge, etc.)
-   - Resource cleanup and updates
-   
-   This policy is significantly more restrictive than using the default `AdministratorAccess` and limits access to only the services needed by the CDK stack. You can use this policy document to create an IAM policy in your AWS account, or reference it when configuring deployment roles.
-
-    **Note**: For production deployments, consider using more restrictive policies scoped to specific resource patterns and actions.
+   **Deployment Permissions**: The permissions CloudFormation needs to deploy this stack are defined in the CloudFormation template in [`deployment-policies/`](./deployment-policies/). This grants only the specific actions used, scoped to this account, region and the stack's own resource names. See [CDK Deployment Permissions](#3-cdk-deployment-permissions) for how `cdk bootstrap` uses them.
 
 ## Installation
 
@@ -92,18 +84,25 @@ The solution includes:
 git clone https://github.com/aws-samples/sample-moodle-integrations-on-aws.git 
 cd sample-moodle-integrations-on-aws
 mise trust
+mise install
 ```
+
+`mise install` installs the tools listed in `mise.toml`: Node.js, Python, the AWS CLI, the AWS CDK CLI, uv and ShellCheck.
 
 ### 2. Configure Local Settings
 
 **Configure AWS Region:**
 
-Update the AWS region in `mise.toml` to match your chosen deployment region:
-
+Set the AWS region in `mise.local.toml` to match your chosen deployment region. This file holds your personal settings, overrides the defaults in `mise.toml`, and is excluded from git. The following command creates it if it does not exist:
+```bash
+mise set --file mise.local.toml AWS_REGION="your-preferred-region"
+```
+This results in the following in `mise.local.toml`:
 ```toml
-# Edit mise.toml and update the AWS_REGION line:
+[env]
 AWS_REGION = "your-preferred-region"
 ```
+If you do not set a region, `mise.toml` defaults to `us-west-2`.
 
 Copy the template and update with your values:
 
@@ -113,9 +112,9 @@ cp cdk.local.json.template cdk.local.json
 
 **Configuration parameters:**
 
-- **domain_name**: The domain name of your Moodle environment without the hostname (e.g., if your Moodle URL was `https://moodle.example.com`, `example.com` should be used). 
+- **domain_name**: The domain name of your Moodle environment without the hostname (e.g., if your Moodle URL was `https://moodle.example.com`, `example.com` should be used). Do not include `https://` or a trailing `/`: the stack builds the Moodle URL from these values, and the LTI launch compares it to the issuer in the token, so `example.com/` fails with an "Invalid issuer" error.
 - **host_name**: Subdomain prefix for your Moodle instance (e.g., if your Moodle URL was `https://moodle.example.com`, `moodle` should be used).
-- **moodle_role_name**: (Optional) Name of an existing IAM role for AWS-hosted Moodle (e.g., EC2 instance role, ECS task role, or EKS service account role). If provided, the EventBridge policy will be automatically attached to this role. If empty, you must manually configure authentication using IAM Roles Anywhere (recommended) or IAM user with access keys.
+- **moodle_role_name**: (Optional) Name of an existing IAM role for AWS-hosted Moodle (e.g., EC2 instance role, ECS task role, or EKS service account role). If provided, the EventBridge policy will be automatically attached to this role. The least privilege deployment policies allow that attachment for this role only, so see [Changing `moodle_role_name`](#3-cdk-deployment-permissions) before you change it after deploying. If empty, you must manually configure authentication using IAM Roles Anywhere (recommended) or IAM user with access keys.
 
 **Example for AWS-hosted Moodle:**
 ```json
@@ -197,35 +196,53 @@ The CDK deployment creates a managed IAM policy called `MoodleEventsIAMPolicy` w
   - Never commit access keys to version control
   - **Update IP addresses**: If your Moodle server IP addresses change, update the policy condition accordingly
   
-  The IP address restriction in the policy above ensures that even if access keys are compromised, they can only be used from your authorized Moodle server locations.
+  The IP address restriction in the policy above helps reduce the risk that compromised access keys can be used from outside your authorized Moodle server locations.
   
-### 3. Configure CDK Deployment Permissions (Optional)
+### 3. CDK Deployment Permissions
 
-By default, CDK uses the `AdministratorAccess` policy for CloudFormation execution. For enhanced security, you can optionally configure CDK to use least privilege permissions instead.
+CDK deployments involve two sets of permissions:
 
-#### Default approach:
+- **Your own credentials** are used by the `cdk` CLI. They only need permission to assume the CDK bootstrap roles (deploy, file publishing and lookup) and read the bootstrap version parameter. They do not make the changes to your account.
+- **The CloudFormation execution role** (`cdk-<qualifier>-cfn-exec-role-...`) is created by `cdk bootstrap` and is the identity CloudFormation uses to create the stack's resources. CDK attaches `AdministratorAccess` to this role unless you give it other policies.
 
-Leave `POLICY_ARN` empty in `mise.toml`:
-```toml
-POLICY_ARN = ""
+`mise run cdk:bootstrap` gives the execution role least privilege policies instead, so you don't need to do anything extra. The permissions are defined in the CloudFormation template [`deployment-policies/deployment-policies.yaml`](deployment-policies/deployment-policies.yaml). It creates two managed policies (`CorePolicy` and `ServicesPolicy`), split to stay under the IAM character limit per policy. The account and region come from the deployment, and the stack name and bootstrap qualifier are template parameters. The policies are deployed as their own stack, `<STACK_NAME>-deployment-policies`, using your current credentials.
+
+When you run `mise run cdk:bootstrap` (step 4), it:
+1. Validates the template and deploys the policy stack (`mise run policy:deploy`). CloudFormation names the policies, for example `moodle-plugins-deployment-policies-CorePolicy-<random>`.
+2. Reads the policy ARNs from the stack and passes them to `cdk bootstrap --cloudformation-execution-policies`. Running it again on an existing bootstrap stack replaces the attached policies.
+
+If you change the template, run `mise run policy:deploy` again. The policies are updated in place and keep their ARNs, so you don't need to bootstrap again.
+
+Validation (`mise run policy:validate`) runs [cfn-lint](https://github.com/aws-cloudformation/cfn-lint) and fails on any service-wide wildcard action such as `s3:*`. It runs locally and doesn't need AWS credentials. A policy over the size limit fails at deploy time and the stack rolls back.
+
+Your credentials need permission to deploy a CloudFormation stack that creates IAM managed policies.
+
+#### Using AdministratorAccess instead
+
+If your credentials can't create IAM policies, you can opt out of the least privilege policies:
+
+```bash
+mise set --file mise.local.toml ALLOW_ADMIN_EXECUTION_ROLE=true
 ```
 
-This uses the default `AdministratorAccess` policy for CloudFormation execution.
+`mise run cdk:bootstrap` then skips the policy stack and attaches `AdministratorAccess` to the execution role. Stack changes then run with full administrator permissions, whatever your own credentials allow, so use this only in an account you're prepared to give that access, such as a short-lived sandbox. The task prints a warning when this is set. To switch back, run `mise unset --file mise.local.toml ALLOW_ADMIN_EXECUTION_ROLE`, then `mise run cdk:bootstrap` again.
 
-#### Least privilege approach (recommended for production):
+**Scope of the policies:**
+- Actions are listed individually, with no service-wide wildcards.
+- Resources are limited to your account and region. Where the stack sets a name, they're also limited to that name: `moodle-plugins-*` for most resources, plus the fixed names the stack uses for the `moodle-events` event bus and its rules, the `/lti/*` SSM parameters and the `MoodleEventsIAMPolicy` managed policy. Bedrock knowledge bases, CloudFront resources, API Gateway APIs, CloudWatch Logs deliveries and Lambda layers get generated IDs, so they're scoped to your account and region only. The CDK bootstrap bucket and version parameter are scoped by the bootstrap qualifier. The only resource outside your account is the AWS-managed Powertools layer, which the policy can read but not change.
+- `iam:PassRole` is limited to the stack's roles and to the Lambda and Bedrock services. Managed policy attachments are limited to `AWSLambdaBasicExecutionRole` on the stack's roles and, when you set `moodle_role_name`, to `MoodleEventsIAMPolicy` on that one role. With no `moodle_role_name`, nothing can be attached to any other role.
+- The execution role can still create and update IAM roles named `moodle-plugins-*`, including their inline policies and trust policies. Anyone who can deploy through it can therefore create a role with any permissions, so treat access to the CDK deploy roles as privileged. For production, consider adding an IAM permissions boundary when you bootstrap (`cdk bootstrap --custom-permissions-boundary`).
+- A few account-level actions don't support resource-level permissions, including the CloudWatch Logs resource policy actions and `secretsmanager:GetRandomPassword`. They use `Resource: "*"`, restricted to your deployment region and `us-east-1`.
 
-If you have an existing IAM policy with the minimum required permissions for CDK deployment, you can configure the deployment to use it:
+If you add resources to the stack, add the matching permissions to the template and run `mise run policy:deploy` again. A missing permission shows up as an `AccessDenied` error from the execution role during `cdk deploy`.
 
-1. **Create the required IAM policy:**
-   Use the policy document provided in [`deployment-least-privilege-policy.json`](deployment-least-privilege-policy.json) to create an IAM policy with the minimum permissions required for this CDK deployment.
+**Changing `moodle_role_name`:** `mise run policy:deploy` reads `moodle_role_name` from `cdk.local.json` and allows the policy to be attached to only that role. `mise run cdk:bootstrap` runs it for you. If you set the value later, run `mise run policy:deploy` before `mise run cdk:deploy`. To change or clear the role, the old role's permission must still exist when the stack detaches the policy from it, so do it in this order:
+1. Set `moodle_role_name` to `""` and run `mise run cdk:deploy`. This detaches the policy from the old role.
+2. Set the new role name, then run `mise run policy:deploy` and `mise run cdk:deploy`. If you only cleared the role, run `mise run policy:deploy` to remove the permission.
 
-2. **Update mise.toml:**
-   Edit the `mise.toml` file and update the `POLICY_ARN` line with your policy ARN:
-   ```toml
-   POLICY_ARN = "arn:aws:iam::YOUR-ACCOUNT-ID:policy/YOUR-POLICY-NAME"
-   ```
+The bootstrap qualifier is set to `moodleplug` (`QUALIFIER` in `mise.toml` and `@aws-cdk/core:bootstrapQualifier` in `cdk.json`, which must match). This gives the sample its own bootstrap stack and execution role, so its least privilege policies don't affect other CDK apps in the same account and region.
 
-**Security Note**: When `POLICY_ARN` is set, both your deployment role and the CloudFormation execution role will use the same least privilege policy. When empty, CDK uses `AdministratorAccess` for CloudFormation execution.
+**Security Note**: The policies are attached only to the CloudFormation execution role, which is the role that creates the stack's resources.
 
 ### 4. Initialize and Deploy
 
@@ -236,28 +253,45 @@ mise run cdk:deploy
 mise run package
 ```
 
+`cdk:bootstrap` also deploys the least privilege execution policies, as described in [step 3](#3-cdk-deployment-permissions).
+
 **Important**: Save the outputs from the `cdk:deploy` step, as these URLs and configuration values will be needed later when configuring the Moodle plugins.
 
 ## Available Commands
 
-Managed through `mise.toml`:
+Managed through `mise.toml`, with longer scripts as [file tasks](https://mise.jdx.dev/tasks/file-tasks.html) in `mise-tasks/`:
 
 ### Development
 - `mise run init` - Install all dependencies
 - `mise run clean` - Remove build artifacts
 
 ### CDK Operations
-- `mise run cdk:bootstrap` - Bootstrap CDK toolkit (uses `POLICY_ARN` if set)
+- `mise run policy:validate` - Lint and validate the least privilege deployment policy template
+- `mise run policy:deploy` - Deploy or update the least privilege deployment policy stack
+- `mise run policy:destroy` - Delete the deployment policy stack
+- `mise run cdk:bootstrap` - Deploy the policy stack, then bootstrap CDK with those policies (set `ALLOW_ADMIN_EXECUTION_ROLE=true` to use `AdministratorAccess` instead)
 - `mise run cdk:synth` - Synthesize and check for security issues
 - `mise run cdk:deploy` - Deploy stack to AWS
 - `mise run cdk:sync` - Watch and hot-reload changes
-- `mise run cdk:destroy` - Destroy stack and cleanup
+- `mise run cdk:destroy` - Destroy stack and cleanup (asks for confirmation)
 
 ### Build
 - `mise run site:build` - Build LTI frontend
 - `mise run package` - Package all Moodle plugins
 - `mise run events:package` - Package AWS Events plugin only
 - `mise run aitranslator:package` - Package AI Translator plugin only
+
+### Security Checks
+- `mise run audit` - Run all the checks below and save each one's output to `audit-reports/`. Every check runs even if an earlier one fails.
+- `mise run audit:secrets` - Scan git-tracked files for hardcoded secrets (detect-secrets)
+- `mise run audit:deps:python` - Check Python dependencies for known vulnerabilities (pip-audit)
+- `mise run audit:deps:npm` - Check frontend dependencies for high or critical vulnerabilities (npm audit)
+- `mise run audit:sast:python` - Scan Python code for security issues (Bandit)
+- `mise run audit:cdk-nag` - Synthesize the CDK app and fail on cdk-nag errors
+- `mise run audit:shell` - Lint the shell task scripts (ShellCheck)
+- `mise run audit:licenses` - Write third-party license lists to `licenses-python.txt` and `licenses-ts.csv` for review
+
+`mise run init` installs the Python scanners from `requirements-dev.txt`, and `mise install` ([step 1](#1-clone-and-configure)) installs ShellCheck and uv. All of them run locally and don't upload code or results anywhere.
 
 ## Production Deployment Considerations
 
@@ -273,6 +307,12 @@ If the sample is being adapted for production deployments, it's strongly recomme
 
 
 > **⚠️ Production Security**: Default CloudFront domains use shared SSL certificates and may not meet enterprise security requirements. Custom domains with proper SSL/TLS policies are essential for production deployments.
+
+### Amazon Bedrock Guardrails for the AI Translator
+
+The AI Translator sends the text a Moodle user enters to the model and shows the model's reply. The Lambda function puts its instructions in a system prompt and wraps the user's text in tags, so text that looks like an instruction is translated rather than followed. This reduces prompt injection but doesn't rule it out, and the sample has no content filtering. The block labels each answer as AI-generated and possibly inaccurate.
+
+For production, consider adding [Amazon Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) to the `converse` call to filter harmful content, block denied topics and mask sensitive information in both the input and the output. This needs a guardrail resource in the stack and `bedrock:ApplyGuardrail` permission for the Lambda function.
 
 ## Plugins
 The deployment creates two plugin packages:
@@ -395,7 +435,7 @@ When an event occurs in the LMS, the following process takes place:
 
 3. A rule receives incoming events and routes them to appropriate AWS Services based on matching event patterns or records are processed off the stream and processed by the consumer.
 
-This architecture ensures secure communication between the LMS and AWS Services allowing LMS platform capabilities to be extended with AWS Services.
+This architecture is designed to help secure communication between the LMS and AWS Services, allowing LMS platform capabilities to be extended with AWS Services.
 
 #### Installation
 
@@ -467,11 +507,13 @@ Required for file indexing:
    - User: `API IndexFiles`
    - Service: `IndexFiles`
    - Valid until: unticked
-1. In AWS Secrets Manager update the Secret value of the secret with a name starting with `MoodleEventHandlersMoodleTo` with the Token just generated
+1. In AWS Secrets Manager update the Secret value of the secret named `moodle-plugins/moodle/token` (`<STACK_NAME>/moodle/token` if you changed `STACK_NAME`) with the Token just generated
 
 **Verification:**
 
 After configuration, uploading a file to a Moodle course triggers a Lambda function that indexes it in the Bedrock Knowledge Base. Verify by checking the `moodle-plugins-MoodleDataSource` data source under the `moodle-plugins-MoodleFiles` Knowledge Base in the AWS Console.
+
+**Course content responsibility:** Files uploaded to a course are indexed automatically, without a separate approval step. You're responsible for having the rights to use that content this way, and for any personal data it contains, so check it meets your organisation's requirements before you enable the plugin on a course.
 
 ## Sample LTI Tool
 
@@ -533,8 +575,10 @@ When a user interacts with the LTI plugin in the LMS:
 │   ├── blocks/             # AI Translator block
 │   └── local/              # AWS Events local plugin
 ├── layers/                 # Lambda layers
+├── deployment-policies/    # CloudFormation template for the least privilege execution policies
 ├── app.py                  # CDK app entry point
 ├── cdk.json                # CDK configuration
+├── mise-tasks/             # Longer mise task scripts (Windows variants as .cmd)
 └── mise.toml               # Task runner configuration
 ```
 
@@ -546,9 +590,21 @@ To remove all deployed AWS resources:
 mise run cdk:destroy
 ```
 
+It asks you to confirm before deleting the stack. To skip the prompt, for example in a pipeline, use `mise run cdk:destroy -- --force`.
+
 This command will:
 - Delete the CloudFormation stack and all associated resources
 - Remove Lambda functions, API Gateway, EventBridge bus and S3 Vectors bucket
 - Clean up CloudWatch log groups
+
+`cdk:destroy` leaves the bootstrap stack and the least privilege policy stack in place. If you no longer need them, remove them in this order. IAM won't delete a policy that is still attached to the CloudFormation execution role.
+
+```bash
+aws cloudformation delete-stack --stack-name CDKToolkit-moodle-plugins
+aws cloudformation wait stack-delete-complete --stack-name CDKToolkit-moodle-plugins
+mise run policy:destroy
+```
+
+The bootstrap stack keeps its staging bucket (`cdk-moodleplug-assets-<account>-<region>`) when it's deleted. Empty and delete the bucket separately if you don't need it.
 
 > **Note**: Some resources may incur costs until fully deleted. Verify deletion in the AWS Console.

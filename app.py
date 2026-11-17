@@ -10,7 +10,6 @@ from cdk_nag import AwsSolutionsChecks, NagSuppressions
 
 app = App()
 
-qualifier = "moodle-plug"
 
 # Add cdk-nag AwsSolutionsChecks to your app
 Aspects.of(app).add(AwsSolutionsChecks())
