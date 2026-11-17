@@ -12,6 +12,7 @@ QUALIFIER = "moodleplug"
 node = "22"
 python = "3.13"
 aws-cli = "latest"
+"npm:aws-cdk" = "2"
 uv = "0.13.7"
 # Used by `mise run audit`. The Python scanners are in requirements-dev.txt
 shellcheck = "0.11.0"

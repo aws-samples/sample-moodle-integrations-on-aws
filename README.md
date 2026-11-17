@@ -60,9 +60,9 @@ The solution includes:
   mise activate pwsh | Out-String | Invoke-Expression
   ```
 - Node.js 22 (managed by mise)
-- Python 3.13 (managed by mise))
-- AWS CLI (managed by mise on Mac and Linux. For Windows see [the installation guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).  This should be configured with appropriate credentials for the deployment account.
-- AWS CDK (`npm install -g aws-cdk`)
+- Python 3.13 (managed by mise)
+- AWS CLI (managed by mise on Mac and Linux. For Windows see [the installation guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).) This should be configured with appropriate credentials for the deployment account.
+- AWS CDK CLI v2 (managed by mise)
 - [Finch](https://github.com/runfinch/finch) or Docker running for container builds
 
 **For Docker users**: Comment out the CDK_DOCKER line in `mise.toml`:
@@ -84,7 +84,10 @@ The solution includes:
 git clone https://github.com/aws-samples/sample-moodle-integrations-on-aws.git 
 cd sample-moodle-integrations-on-aws
 mise trust
+mise install
 ```
+
+`mise install` installs the tools listed in `mise.toml`: Node.js, Python, the AWS CLI, the AWS CDK CLI, uv and ShellCheck.
 
 ### 2. Configure Local Settings
 
@@ -290,7 +293,7 @@ Managed through `mise.toml`, with longer scripts as [file tasks](https://mise.jd
 - `mise run audit:shell` - Lint the shell task scripts (ShellCheck)
 - `mise run audit:licenses` - Write third-party license lists to `licenses-python.txt` and `licenses-ts.csv` for review
 
-`mise run init` installs the Python scanners from `requirements-dev.txt`, and `mise install` installs ShellCheck. All of them run locally and don't upload code or results anywhere.
+`mise run init` installs the Python scanners from `requirements-dev.txt`, and `mise install` ([step 1](#1-clone-and-configure)) installs ShellCheck and uv. All of them run locally and don't upload code or results anywhere.
 
 ## Production Deployment Considerations
 
