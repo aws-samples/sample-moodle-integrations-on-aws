@@ -69,7 +69,8 @@ run_windows = [
 [tasks."cdk:deploy"]
 description = "Deploy CDK stack to AWS"
 depends = "site:build"
-run = "cdk deploy --require-approval never"
+# No --require-approval flag, so CDK asks before adding or widening IAM permissions
+run = "cdk deploy"
 
 [tasks."cdk:sync"]
 description = "Watch and deploy CDK changes with hotswap"

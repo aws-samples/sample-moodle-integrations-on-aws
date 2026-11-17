@@ -252,6 +252,8 @@ mise run package
 
 `cdk:bootstrap` also deploys the least privilege execution policies, as described in [step 3](#3-cdk-deployment-permissions).
 
+`cdk:deploy` lists any IAM and security changes and asks you to confirm them before deploying. A first deploy always asks, because it creates the stack's roles. To run it without the prompt, for example in a pipeline, use `mise run cdk:deploy -- --require-approval never`.
+
 **Important**: Save the outputs from the `cdk:deploy` step, as these URLs and configuration values will be needed later when configuring the Moodle plugins.
 
 ## Available Commands
