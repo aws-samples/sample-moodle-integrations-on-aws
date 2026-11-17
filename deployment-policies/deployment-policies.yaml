@@ -141,6 +141,9 @@ Resources:
               - "lambda:UntagResource"
               - "lambda:ListTags"
             Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StackName}-*"
+          # The stack's layers, including the one CDK adds for BucketDeployment, get
+          # generated names, so there's no stack-name prefix to scope to. Delete is
+          # needed for CloudFormation to remove replaced and destroyed layer versions.
           - Sid: ManageLayersInAccountAndRegion
             Effect: Allow
             Action:
@@ -186,6 +189,9 @@ Resources:
               - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:delivery-source:${StackName}-*"
               - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:delivery-destination:${StackName}-*"
               - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:delivery:*"
+          # These actions don't support resource-level permissions, including
+          # logs:PutResourcePolicy and logs:DeleteResourcePolicy, so they use
+          # Resource "*" and are limited by region instead.
           - Sid: ActionsWithoutResourceLevelSupport
             Effect: Allow
             Action:
