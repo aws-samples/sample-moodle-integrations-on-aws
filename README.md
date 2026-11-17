@@ -272,7 +272,7 @@ Managed through `mise.toml`, with longer scripts as [file tasks](https://mise.jd
 - `mise run cdk:synth` - Synthesize and check for security issues
 - `mise run cdk:deploy` - Deploy stack to AWS
 - `mise run cdk:sync` - Watch and hot-reload changes
-- `mise run cdk:destroy` - Destroy stack and cleanup
+- `mise run cdk:destroy` - Destroy stack and cleanup (asks for confirmation)
 
 ### Build
 - `mise run site:build` - Build LTI frontend
@@ -589,12 +589,14 @@ To remove all deployed AWS resources:
 mise run cdk:destroy
 ```
 
+It asks you to confirm before deleting the stack. To skip the prompt, for example in a pipeline, use `mise run cdk:destroy -- --force`.
+
 This command will:
 - Delete the CloudFormation stack and all associated resources
 - Remove Lambda functions, API Gateway, EventBridge bus and S3 Vectors bucket
 - Clean up CloudWatch log groups
 
-If you deployed the least privilege policies and no longer need the bootstrap stack, remove them in this order. IAM won't delete a policy that is still attached to the CloudFormation execution role.
+`cdk:destroy` leaves the bootstrap stack and the least privilege policy stack in place. If you no longer need them, remove them in this order. IAM won't delete a policy that is still attached to the CloudFormation execution role.
 
 ```bash
 aws cloudformation delete-stack --stack-name CDKToolkit-moodle-plugins

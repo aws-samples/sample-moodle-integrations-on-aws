@@ -79,7 +79,7 @@ run = "cdk deploy --hotswap-fallback --watch"
 
 [tasks."cdk:destroy"]
 description = "Destroy CDK stack and cleanup resources"
-run = "cdk destroy --force"
+run = "cdk destroy"
 
 [tasks."site:build"]
 description = "Build LTI frontend site"
