@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#MISE description="Deploy or update the deployment policy stack"
+#MISE depends=["policy:validate"]
+set -euo pipefail
+
+# moodle_role_name is configured once, in cdk.local.json, so read it from there
+# instead of asking for it a second time.
+moodle_role_name=$(python - <<'EOF'
+import json
+import pathlib
+
+path = pathlib.Path("cdk.local.json")
+config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+print(config.get("context", {}).get("moodle_role_name") or "")
+EOF
+)
+
+aws cloudformation deploy \
+  --template-file deployment-policies/deployment-policies.yaml \
+  --stack-name "${STACK_NAME}-deployment-policies" \
+  --parameter-overrides StackName="$STACK_NAME" Qualifier="$QUALIFIER" MoodleRoleName="$moodle_role_name" \
+  --capabilities CAPABILITY_IAM \
+  --no-fail-on-empty-changeset

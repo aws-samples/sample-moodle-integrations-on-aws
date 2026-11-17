@@ -17,6 +17,15 @@ Parameters:
     Default: moodleplug
     Description: CDK bootstrap qualifier. Must match QUALIFIER in mise.toml and "@aws-cdk/core:bootstrapQualifier" in cdk.json.
     AllowedPattern: "^[a-z0-9]{1,10}$"
+  MoodleRoleName:
+    Type: String
+    Default: ""
+    Description: Existing IAM role that MoodleEventsIAMPolicy is attached to. Must match moodle_role_name in cdk.local.json. Leave empty if you don't set one.
+    # Only characters valid in an IAM role name, so the value can't contain a wildcard
+    AllowedPattern: "^[A-Za-z0-9+=,.@_-]{0,64}$"
+
+Conditions:
+  HasMoodleRole: !Not [!Equals [!Ref MoodleRoleName, ""]]
 
 Resources:
   CorePolicy:
@@ -74,15 +83,22 @@ Resources:
             Condition:
               ArnEquals:
                 iam:PolicyARN: "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-          - Sid: AttachMoodleEventsPolicyToMoodleRole
-            Effect: Allow
-            Action:
-              - "iam:AttachRolePolicy"
-              - "iam:DetachRolePolicy"
-            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/*"
-            Condition:
-              ArnEquals:
-                iam:PolicyARN: !Sub "arn:aws:iam::${AWS::AccountId}:policy/MoodleEventsIAMPolicy"
+          # Only present when a Moodle role is configured, and then only for that role
+          - !If
+            - HasMoodleRole
+            - Sid: AttachMoodleEventsPolicyToMoodleRole
+              Effect: Allow
+              Action:
+                - "iam:AttachRolePolicy"
+                - "iam:DetachRolePolicy"
+              Resource:
+                - !Sub "arn:aws:iam::${AWS::AccountId}:role/${MoodleRoleName}"
+                # A role created with a path, such as service-role/, has it in its ARN
+                - !Sub "arn:aws:iam::${AWS::AccountId}:role/*/${MoodleRoleName}"
+              Condition:
+                ArnEquals:
+                  iam:PolicyARN: !Sub "arn:aws:iam::${AWS::AccountId}:policy/MoodleEventsIAMPolicy"
+            - !Ref AWS::NoValue
           - Sid: ManageMoodleEventsPolicy
             Effect: Allow
             Action:

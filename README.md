@@ -111,7 +111,7 @@ cp cdk.local.json.template cdk.local.json
 
 - **domain_name**: The domain name of your Moodle environment without the hostname (e.g., if your Moodle URL was `https://moodle.example.com`, `example.com` should be used). Do not include `https://` or a trailing `/`: the stack builds the Moodle URL from these values, and the LTI launch compares it to the issuer in the token, so `example.com/` fails with an "Invalid issuer" error.
 - **host_name**: Subdomain prefix for your Moodle instance (e.g., if your Moodle URL was `https://moodle.example.com`, `moodle` should be used).
-- **moodle_role_name**: (Optional) Name of an existing IAM role for AWS-hosted Moodle (e.g., EC2 instance role, ECS task role, or EKS service account role). If provided, the EventBridge policy will be automatically attached to this role. If empty, you must manually configure authentication using IAM Roles Anywhere (recommended) or IAM user with access keys.
+- **moodle_role_name**: (Optional) Name of an existing IAM role for AWS-hosted Moodle (e.g., EC2 instance role, ECS task role, or EKS service account role). If provided, the EventBridge policy will be automatically attached to this role. The least privilege deployment policies allow that attachment for this role only, so see [Changing `moodle_role_name`](#3-cdk-deployment-permissions) before you change it after deploying. If empty, you must manually configure authentication using IAM Roles Anywhere (recommended) or IAM user with access keys.
 
 **Example for AWS-hosted Moodle:**
 ```json
@@ -227,10 +227,15 @@ mise set --file mise.local.toml ALLOW_ADMIN_EXECUTION_ROLE=true
 **Scope of the policies:**
 - Actions are listed individually, with no service-wide wildcards.
 - Resources are limited to your account and region, and to names starting with the stack name (`moodle-plugins-*`) wherever the stack controls the name. Bedrock knowledge bases, CloudFront resources, API Gateway APIs and the BucketDeployment layer get generated IDs, so they are scoped to your account and region instead.
-- `iam:PassRole` is limited to the stack's roles and to the Lambda and Bedrock services. Managed policy attachments are limited to `AWSLambdaBasicExecutionRole` on the stack's roles and to `MoodleEventsIAMPolicy` on the Moodle role you configure in `moodle_role_name`.
+- `iam:PassRole` is limited to the stack's roles and to the Lambda and Bedrock services. Managed policy attachments are limited to `AWSLambdaBasicExecutionRole` on the stack's roles and, when you set `moodle_role_name`, to `MoodleEventsIAMPolicy` on that one role. With no `moodle_role_name`, nothing can be attached to any other role.
+- The execution role can still create and update IAM roles named `moodle-plugins-*`, including their inline policies and trust policies. Anyone who can deploy through it can therefore create a role with any permissions, so treat access to the CDK deploy roles as privileged. For production, consider adding an IAM permissions boundary when you bootstrap (`cdk bootstrap --custom-permissions-boundary`).
 - A few read actions and the CloudWatch Logs resource policy actions don't support resource-level permissions, so they use `Resource: "*"`, restricted to your deployment region and `us-east-1`.
 
 If you add resources to the stack, add the matching permissions to the template and run `mise run policy:deploy` again. A missing permission shows up as an `AccessDenied` error from the execution role during `cdk deploy`.
+
+**Changing `moodle_role_name`:** `mise run policy:deploy` reads `moodle_role_name` from `cdk.local.json` and allows the policy to be attached to only that role. `mise run cdk:bootstrap` runs it for you. If you set the value later, run `mise run policy:deploy` before `mise run cdk:deploy`. To change or clear the role, the old role's permission must still exist when the stack detaches the policy from it, so do it in this order:
+1. Set `moodle_role_name` to `""` and run `mise run cdk:deploy`. This detaches the policy from the old role.
+2. Set the new role name, then run `mise run policy:deploy` and `mise run cdk:deploy`. If you only cleared the role, run `mise run policy:deploy` to remove the permission.
 
 The bootstrap qualifier is set to `moodleplug` (`QUALIFIER` in `mise.toml` and `@aws-cdk/core:bootstrapQualifier` in `cdk.json`, which must match). This gives the sample its own bootstrap stack and execution role, so its least privilege policies don't affect other CDK apps in the same account and region.
 

@@ -53,11 +53,6 @@ run = [
   "if grep -nE '\"[a-z0-9-]+:[*]\"' deployment-policies/deployment-policies.yaml; then echo 'Service-wide wildcard actions are not allowed'; exit 1; fi",
 ]
 
-[tasks."policy:deploy"]
-description = "Deploy or update the deployment policy stack"
-depends = "policy:validate"
-run = "aws cloudformation deploy --template-file deployment-policies/deployment-policies.yaml --stack-name \"$STACK_NAME-deployment-policies\" --parameter-overrides StackName=\"$STACK_NAME\" Qualifier=\"$QUALIFIER\" --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset"
-
 [tasks."policy:destroy"]
 description = "Delete the deployment policy stack (destroy the CDK stack and bootstrap stack first)"
 run = [
@@ -141,7 +136,7 @@ run = "cdk synth --quiet"
 
 [tasks."audit:shell"]
 description = "Lint the shell task scripts"
-run = "shellcheck mise-tasks/audit mise-tasks/clean mise-tasks/cdk/bootstrap"
+run = "shellcheck mise-tasks/audit mise-tasks/clean mise-tasks/cdk/bootstrap mise-tasks/policy/deploy"
 
 [tasks."audit:licenses"]
 description = "List third-party licenses for review"
