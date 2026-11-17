@@ -50,7 +50,9 @@ run_windows = [
 description = "Lint the deployment policy template and reject service-wide wildcard actions"
 run = [
   "cfn-lint deployment-policies/deployment-policies.yaml",
-  "if grep -nE '\"[a-z0-9-]+:[*]\"' deployment-policies/deployment-policies.yaml; then echo 'Service-wide wildcard actions are not allowed'; exit 1; fi",
+  # Python rather than grep so the same command runs under sh and cmd. \x22 is a
+  # double quote, spelled so that no quote characters need escaping in either shell.
+  "python -c \"import re,sys; hits=[l.strip() for l in open('deployment-policies/deployment-policies.yaml') if re.search(r'\\x22[a-z0-9-]+:[*]\\x22', l)]; sys.exit('\\n'.join(hits) + '\\nService-wide wildcard actions are not allowed') if hits else None\"",
 ]
 
 [tasks."policy:destroy"]
@@ -58,6 +60,10 @@ description = "Delete the deployment policy stack (destroy the CDK stack and boo
 run = [
   "aws cloudformation delete-stack --stack-name \"$STACK_NAME-deployment-policies\"",
   "aws cloudformation wait stack-delete-complete --stack-name \"$STACK_NAME-deployment-policies\"",
+]
+run_windows = [
+  "aws cloudformation delete-stack --stack-name \"%STACK_NAME%-deployment-policies\"",
+  "aws cloudformation wait stack-delete-complete --stack-name \"%STACK_NAME%-deployment-policies\"",
 ]
 
 [tasks."cdk:deploy"]
@@ -115,6 +121,9 @@ description = "Scan git-tracked files for hardcoded secrets"
 # --exclude-lines skips the Secrets Manager IAM action names in the deployment
 # policy template, which the keyword detector mistakes for secrets
 run = "detect-secrets scan --exclude-lines '\"secretsmanager:[A-Za-z]+\"' | python -c \"import json,sys; r=json.load(sys.stdin)['results']; print(json.dumps(r, indent=2) if r else 'No secrets found'); sys.exit(1 if r else 0)\""
+# cmd doesn't treat single quotes as quotes, so the same pattern is written with
+# \x22 for the double quotes and left unquoted
+run_windows = "detect-secrets scan --exclude-lines \\x22secretsmanager:[A-Za-z]+\\x22 | python -c \"import json,sys; r=json.load(sys.stdin)['results']; print(json.dumps(r, indent=2) if r else 'No secrets found'); sys.exit(1 if r else 0)\""
 
 [tasks."audit:deps:python"]
 description = "Check Python dependencies for known vulnerabilities"
